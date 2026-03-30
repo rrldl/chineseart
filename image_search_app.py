@@ -79,28 +79,22 @@ logger = logging.getLogger(__name__)
 
 class ImageSearchService:
     def __init__(self, neo4j_uri, neo4j_user, neo4j_password):
-        """【云端优化版】初始化图像搜索服务"""
-        # 1. 基础连接配置
+        """初始化图像搜索服务"""
         self.neo4j_uri = neo4j_uri
         self.neo4j_user = neo4j_user
         self.neo4j_password = neo4j_password
 
-        # 2. 关键：直接在这里建立 Neo4j 连接 (统一命名为 self.graph)
         try:
-            from py2neo import Graph, NodeMatcher
+            # 统一使用 py2neo
             self.graph = Graph(neo4j_uri, auth=(neo4j_user, neo4j_password))
             self.matcher = NodeMatcher(self.graph)
             self.database_connected = True
-            print("Neo4j 数据库连接成功 (云端模式)")
+            print("Neo4j 连接成功 (Py2neo 模式)")
         except Exception as e:
             print(f"Neo4j 连接失败: {e}")
             self.database_connected = False
 
-        # 3. 标记模型为“已加载” (实际上我们不需要加载本地模型了)
         self.model_loaded = True 
-        
-        # 删掉所有关于 self.device, self.model_name, self.executor 等复杂的本地配置
-        print(" ImageSearchService 已切换至【纯云端模式】，本地 CLIP 资源已释放")
     def _load_model(self):
         """【云端版】无需加载任何本地模型"""
         # 直接什么都不做，或者打印一行提示
@@ -163,18 +157,12 @@ class ImageSearchService:
             self._connect_database()
             self.database_connected = True
     def extract_image_embedding(self, image_path):
-        """【云端版】搜图时的特征提取，已修正结构解析"""
+        """【云端版】提取图片特征 (1024维)"""
         try:
             import dashscope
             from dashscope import MultiModalEmbedding
-            import numpy as np
-            import os
-
-            # 设置 API Key
             dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
 
-            # 调用阿里云接口
-            # 使用 file:// 协议和绝对路径是最稳妥的
             abs_path = os.path.abspath(image_path)
             result = MultiModalEmbedding.call(
                 model='multimodal-embedding-v1',
@@ -182,21 +170,13 @@ class ImageSearchService:
             )
 
             if result.status_code == 200:
-                # --- 关键修正点：适配 ['embeddings'][0]['embedding'] ---
-                if 'embeddings' in result.output and len(result.output['embeddings']) > 0:
-                    embedding_data = result.output['embeddings'][0]['embedding']
-                    logger.info(f"特征提取成功，维度: {len(embedding_data)}")
-                    return np.array(embedding_data, dtype=np.float32)
-                else:
-                    logger.error(f"API返回成功但找不到向量数据: {result.output}")
-                    return None
+                embedding_data = result.output['embeddings'][0]['embedding']
+                return np.array(embedding_data, dtype=np.float32)
             else:
-                logger.error(f"云端特征提取失败: {result.message}")
+                logger.error(f"图片特征提取失败: {result.message}")
                 return None
-            
         except Exception as e:
-            # 这里就是你看到的报错地点：'embedding'
-            logger.error(f"调用云端 Embedding 接口出错: {e}")
+            logger.error(f"提取图片特征出错: {e}")
             return None
     def enhance_text(self, text):
         """增强文本，提高搜索准确性"""
@@ -1047,15 +1027,11 @@ class ImageSearchService:
         return None
     
     def search_similar_images(self, query_vector, label="Artwork", top_k=5, min_similarity=0.01):
-        """在 Neo4j 中进行向量相似度计算 (纯数学版)"""
-        graph_obj = getattr(self, 'graph', getattr(self, '_graph', None))
-        if not graph_obj:
-            from py2neo import Graph
-            graph_obj = Graph(self.neo4j_uri, auth=(self.neo4j_user, self.neo4j_password))
-
+        """在数据库中进行向量余弦相似度计算"""
+        # 将 numpy 数组转为 list 供 Cypher 使用
         vector_list = query_vector.tolist() if hasattr(query_vector, 'tolist') else query_vector
 
-        # 纯数学 Cypher：返回 0.0 ~ 1.0 之间的小数
+        # 核心 Cypher：通过数学公式计算余弦相似度
         query = f"""
         MATCH (n:{label})
         WHERE n.image_embedding IS NOT NULL
@@ -1066,37 +1042,48 @@ class ImageSearchService:
             sqrt(reduce(s=0.0, i in range(0, size($vector)-1) | s + $vector[i]^2)) + 0.00001) AS score
         WHERE score > $min_score
         RETURN n.title AS title, score AS similarity
-        ORDER BY score DESC
+        ORDER BY similarity DESC
         LIMIT $limit
         """
         try:
-            results = graph_obj.run(query, vector=vector_list, min_score=min_similarity, limit=top_k).data()
+            # 使用 py2neo 的 run
+            results = self.graph.run(query, vector=vector_list, min_score=min_similarity, limit=top_k).data()
             return results
         except Exception as e:
-            print(f"❌ 数据库向量查询出错: {e}")
-            return []  
+            logger.error(f"数据库查询出错: {e}")
+            return []
     def _get_complete_artwork_info(self, title):
-        """获取作品完整信息，支持从属性读取并支持父子对齐"""
+        """获取作品完整信息：支持关系节点和属性双重读取"""
         try:
-            # 逻辑：优先查当前节点属性，如果为空，则查其所属的主图属性
+            # 这里的 query 变量就是我之前说的 info_query 逻辑
             query = """
-            MATCH (a:Artwork)
-            WHERE a.title = $title OR a.image_filename STARTS WITH $title
-            OPTIONAL MATCH (a)-[:PART_OF|属于子图]->(master:Artwork)
+            MATCH (n:Artwork)
+            WHERE n.title = $title OR n.name = $title OR n.image_filename STARTS WITH $title
+            
+            // 1. 优先找连着的【作者】节点
+            OPTIONAL MATCH (n)-[:CREATED_BY]->(a:Artist)
+            
+            // 2. 优先找连着的【朝代】节点 (你刚才建立的 PART_OF 关系在这里生效)
+            OPTIONAL MATCH (n)-[:PART_OF]->(d:Dynasty)
+            
+            // 3. 优先找连着的【风格】节点 (适配你截图里的“属于流派”)
+            OPTIONAL MATCH (n)-[:属于流派|HAS_STYLE]->(s:Style)
+            
             RETURN 
-                coalesce(a.author, master.author, '未知作者') AS author,
-                coalesce(a.dynasty, master.dynasty, '未知') AS dynasty,
-                coalesce(a.style, master.style, '未知') AS style,
-                coalesce(a.info, master.info, '暂无描述') AS detail
+                coalesce(a.name, n.author, '无确切作者') AS author,
+                coalesce(d.name, n.dynasty, '未知朝代') AS dynasty,
+                coalesce(s.name, n.style, '未知风格') AS style,
+                coalesce(n.description, n.info, '暂无描述') AS detail
             LIMIT 1
             """
             result = self.graph.run(query, title=title).data()
             if result:
                 return result[0]
-            return {}
+            # 如果彻底没找到，返回默认值
+            return {'author': '无确切作者', 'dynasty': '未知朝代', 'style': '未知风格', 'detail': '暂无描述'}
         except Exception as e:
-            logger.error(f"获取信息失败: {e}")
-            return {}
+            logger.error(f"获取完整信息失败: {e}")
+            return {'author': '无确切作者', 'dynasty': '未知朝代', 'style': '未知风格', 'detail': '暂无描述'}
     def _get_artwork_image_url(self, title):
         """根据画作标题获取图片URL - 直接访问artwork_images目录"""
         try:
@@ -1298,78 +1285,88 @@ class ImageSearchService:
             logger.error(f"标题搜索失败: {e}")
             return []
 
-    def search_by_text(self, text, top_k=5, min_similarity=0.1):
-        """【云端版】优化后的以文搜图"""
+    def search_by_text(self, text, top_k=5, min_similarity=0.01):
+        """【最终修正版】以文搜图：带知识增强与高兼容性"""
         try:
             import dashscope
             from dashscope import MultiModalEmbedding
-            import numpy as np
-
-            logger.info(f"开始云端处理搜索文本: {text}")
             dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
 
-            # 1. 调用阿里云模型将【文字】转为向量 (1024维)
+            # 1. 语义特征提取
             result = MultiModalEmbedding.call(
                 model='multimodal-embedding-v1',
                 input=[{'text': text}]
             )
-
             if result.status_code != 200:
-                logger.error(f"文字特征提取失败: {result.message}")
-                return {"error": "特征提取服务异常"}
-
+                logger.error(f"特征提取失败: {result.message}")
+                return {"success": False, "error": "特征提取失败", "results": [], "artworks": []}
+            
             query_emb = result.output['embeddings'][0]['embedding']
 
-            # 2. 直接执行融合查询（核心改进！）
-            # 注意：这里假设你的向量索引名称为 'artwork_vector_index'
-            cypher = """
-            CALL db.index.vector.queryNodes('artwork_vector_index', $top_k, $vector)
-            YIELD node, score
-            WHERE score >= $min_sim
+            # 2. 向量初筛 
+            # 注意：这里把 min_similarity 设得很低（0.01），防止初筛就把好苗子过滤掉了
+            artwork_results = self.search_similar_images(query_emb, "Artwork", top_k * 3, 0.01)
             
-            // 关键：通过关系获取关联信息，而不是查属性
-            OPTIONAL MATCH (node)-[:CREATED_BY]->(a:Artist)
-            OPTIONAL MATCH (node)-[:PART_OF]->(d:Dynasty)
-            OPTIONAL MATCH (node)-[:HAS_STYLE]->(s:Style)
-            
-            RETURN 
-                node.name AS title,
-                node.image_filename AS filename,
-                node.description AS desc,
-                a.name AS author,
-                d.name AS dynasty,
-                s.name AS style,
-                score AS similarity
-            """
-            
-            final_artworks = []
-            # 这里建议直接使用你的 neo4j driver 执行
-            with self.driver.session() as session:
-                records = session.run(cypher, vector=query_emb, top_k=top_k, min_sim=min_similarity)
-                for rec in records:
-                    # 处理相似度显示问题
-                    # 如果返回 0.3 是指 0.3%，那是因为原始值是 0.003
-                    # 阿里向量相似度通常在 0.3-0.9 之间，我们乘以 100 变成百分比
-                    sim_value = rec['similarity']
-                    
-                    final_artworks.append({
-                        'title': rec['title'],
-                        'similarity': round(sim_value, 4), # 保持原始小数，前端格式化
-                        'similarity_text': f"{sim_value:.2%}", # 后端直接生成百分比字符串
-                        'author': rec['author'] if rec['author'] else "无确切作者",
-                        'dynasty': rec['dynasty'] if rec['dynasty'] else "未知朝代",
-                        'style': rec['style'] if rec['style'] else "通用",
-                        'description': rec['desc'] if rec['desc'] else "暂无描述",
-                        # 确保图片路径拼接正确
-                        'image_url': f"/static/artworks/{rec['filename']}" if rec['filename'] else ""
-                    })
+            if not artwork_results:
+                logger.warning("数据库未匹配到任何相似向量")
+                return {"success": True, "results": [], "artworks": [], "count": 0}
 
+            temp_list = []
+            for res in artwork_results:
+                title = res.get('title', '未知')
+                raw_score = float(res.get('similarity', 0))
+                
+                # 获取该画作的完整知识
+                info = self._get_complete_artwork_info(title)
+                
+                # --- 核心：知识权重提升 (Boosting) ---
+                # 将原始余弦值转为百分比基数（如 0.25 -> 25.0）
+                boosted_score = raw_score * 100 
+                
+                # A. 朝代匹配加分（权重最高）
+                # 如果用户搜“宋”，画作朝代是“北宋”或“南宋”，加分
+                dynasty_keywords = ["宋", "唐", "元", "明", "清", "五代", "晋", "汉"]
+                for dk in dynasty_keywords:
+                    if dk in text: # 用户搜了某个朝代
+                        actual_dynasty = info.get('dynasty', '')
+                        if dk in actual_dynasty:
+                            boosted_score += 30.0  # 匹配到朝代，大幅加分
+                            break # 匹配一个朝代就够了
+
+                # B. 风格/类型匹配加分
+                style_keywords = ["山水", "人物", "花鸟", "工笔", "写意"]
+                for sk in style_keywords:
+                    if sk in text and sk in info.get('style', ''):
+                        boosted_score += 10.0
+
+                temp_list.append({
+                    'title': title,
+                    'similarity': boosted_score,
+                    'author': info.get('author'),
+                    'dynasty': info.get('dynasty'),
+                    'style': info.get('style'),
+                    'description': info.get('detail'),
+                    'image_url': self._get_artwork_image_url(title)
+                })
+
+            # 3. 根据加成后的分值重新排序
+            temp_list.sort(key=lambda x: x['similarity'], reverse=True)
+
+            # 4. 截取前 top_k 个，并格式化分值
+            final_artworks = []
+            for item in temp_list[:top_k]:
+                # 确保分值美观（不超过99.9）
+                item['similarity'] = round(min(99.9, item['similarity']), 1)
+                final_artworks.append(item)
+
+            # 5. 【关键】同时返回 results 和 artworks 两个键，确保前端能接到
             return {
-                "success": True,
+                "success": True, 
+                "results": final_artworks,
                 "artworks": final_artworks,
                 "count": len(final_artworks)
             }
 
         except Exception as e:
             logger.error(f"search_by_text 异常: {e}", exc_info=True)
-            return {"error": str(e), "artworks": []}
+            return {"success": False, "error": str(e), "results": [], "artworks": []}
