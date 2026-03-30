@@ -1,0 +1,88 @@
+{
+  "entity_types": [
+    "Artwork",
+    "Artist",
+    "Dynasty",
+    "Style",
+    "HistoricalEvent",
+    "Collection",
+    "Seal",
+    "Inscription",
+    "Person"
+  ],
+  "relationship_types": [
+    "CREATED_BY",
+    "PART_OF",
+    "LIVED_IN",
+    "HAS_STYLE",
+    "INFLUENCED_BY",
+    "INFLUENCED",
+    "STORED_IN",
+    "HAS_SEAL",
+    "HAS_INSCRIPTION",
+    "OWNED_BY",
+    "WRITTEN_BY",
+    "RELATED_TO",
+    "HAS_ALIGNMENT"
+  ],
+  "property_templates": {
+    "Artwork": {
+      "title": "string",
+      "description": "string",
+      "medium": "string",
+      "date": "string",
+      "dimensions": "object",
+      "collection": "string",
+      "style": "string",
+      "image_url": "string"
+    },
+    "Artist": {
+      "name": "string",
+      "birth_year": "string",
+      "death_year": "string",
+      "style": "string",
+      "description": "string",
+      "era": "string"
+    },
+    "Dynasty": {
+      "name": "string",
+      "start_year": "string",
+      "end_year": "string",
+      "description": "string"
+    },
+    "Style": {
+      "name": "string",
+      "origin": "string",
+      "characteristics": "list",
+      "description": "string"
+    },
+    "HistoricalEvent": {
+      "name": "string",
+      "time": "string",
+      "description": "string",
+      "influence": "list"
+    },
+    "Collection": {
+      "name": "string",
+      "location": "string",
+      "description": "string"
+    },
+    "Seal": {
+      "text": "string",
+      "owner": "string",
+      "type": "string",
+      "description": "string"
+    },
+    "Inscription": {
+      "text": "string",
+      "author": "string",
+      "type": "string",
+      "description": "string"
+    },
+    "Person": {
+      "name": "string",
+      "era": "string",
+      "description": "string"
+    }
+  }
+}

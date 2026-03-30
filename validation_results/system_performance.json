@@ -1,0 +1,16 @@
+{
+  "timestamp": 1770707131.8429751,
+  "components": {
+    "alignment": {},
+    "retrieval": {},
+    "qa": {
+      "accuracy": 0
+    }
+  },
+  "summary": {
+    "alignment_f1": 0,
+    "retrieval_f1": 0,
+    "qa_accuracy": 0,
+    "overall_score": 0.0
+  }
+}

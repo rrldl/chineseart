@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-02-10T14:58:15.093008",
+  "entity_index": {
+    "status": "available"
+  },
+  "alignment_index": {
+    "status": "unavailable"
+  },
+  "index_dir": "vector_index",
+  "embedding_model": "moka-ai/m3e-base"
+}

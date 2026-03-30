@@ -1,0 +1,50 @@
+{
+  "张择端": {
+    "baidu_baike": {
+      "keyword": "张择端",
+      "title": "张择端",
+      "entity_type": "Artist",
+      "source": "baidu_baike",
+      "summary": "",
+      "content": "",
+      "info_box": {},
+      "url": "https://baike.baidu.com/item/%E5%BC%A0%E6%8B%A9%E7%AB%AF"
+    }
+  },
+  "清明上河图": {
+    "baidu_baike": {
+      "keyword": "清明上河图",
+      "title": "清明上河图",
+      "entity_type": "Artwork",
+      "source": "baidu_baike",
+      "summary": "",
+      "content": "",
+      "info_box": {},
+      "url": "https://baike.baidu.com/item/%E6%B8%85%E6%98%8E%E4%B8%8A%E6%B2%B3%E5%9B%BE"
+    }
+  },
+  "元祐党争": {
+    "baidu_baike": {
+      "keyword": "元祐党争",
+      "title": "元祐党争",
+      "entity_type": "HistoricalEvent",
+      "source": "baidu_baike",
+      "summary": "",
+      "content": "",
+      "info_box": {},
+      "url": "https://baike.baidu.com/item/%E5%85%83%E7%A5%90%E5%85%9A%E4%BA%89"
+    }
+  },
+  "吴门画派": {
+    "baidu_baike": {
+      "keyword": "吴门画派",
+      "title": "吴门画派",
+      "entity_type": "Style",
+      "source": "baidu_baike",
+      "summary": "",
+      "content": "",
+      "info_box": {},
+      "url": "https://baike.baidu.com/item/%E5%90%B4%E9%97%A8%E7%94%BB%E6%B4%BE"
+    }
+  }
+}
