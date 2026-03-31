@@ -122,9 +122,24 @@ def describe_image_with_qwen(image_path):
             image_base64 = base64.b64encode(f.read()).decode("utf-8")
 
         # 构造多模态消息
+        prompt_text = (
+            "你是一位经验丰富的中国古代艺术史专家和书画鉴赏家。请以专业、严谨、结构化的方式，详细分析眼前这幅图像。\n\n"
+            "重要提示：请忽略图像中的红色轮廓线、彩色遮罩区域和分割标记，这些是分析工具留下的。请专注于底层原画的艺术风格、构图、笔触和历史背景进行鉴赏。\n\n"
+            "分析要求：\n"
+            "1.  客观描述优先：首先对画面进行客观的视觉描述，不加入主观推测。\n"
+            "2.  逻辑推断：在描述的基础上，结合艺术史知识进行推断。\n\n"
+            "请从以下几个核心角度展开分析：\n\n"
+            "1.  主题与内容：画面描绘了什么？是山水、人物、花鸟，还是书法？如果有人物，他们在做什么？如果是山水，描绘的是何种景致？\n\n"
+            "2.  风格与技法：笔墨线条特点？如果是山水画，主要使用了哪种皴法？是水墨画还是设色画？色彩运用有何特点？\n\n"
+            "3.  构图与布局：画面元素如何安排？空间感处理得如何？\n\n"
+            "4.  印章与题跋：画面上是否有可见的印章或文字？若有，描述其位置和颜色。\n\n"
+            "5.  作者与朝代推断：风格最符合哪个朝代？可能出自哪个流派或画家？\n\n"
+            "6.  情感与意境：这幅画作传达了怎样的情感或氛围？\n\n"
+            "请用专业术语进行描述，并以清晰的结构输出你的分析报告。"
+        )
         message = HumanMessage(
             content=[
-                {"type": "text", "text": "请以专业的艺术鉴赏角度描述这张中国古代书画。"},
+                {"type": "text", "text": prompt_text},
                 {"type": "image", "image": f"data:image/png;base64,{image_base64}"}
             ]
         )
@@ -146,9 +161,11 @@ def describe_image_with_qwen(image_path):
         # 清理格式
         description = description.replace('**', '')
         import re
-        description = re.sub(r'^#{1,3}\s', '', description, flags=re.MULTILINE)
         
-        # 处理标题标记，将#标题转换为HTML标题
+        # 直接让前端处理格式，后端只保留原始文本
+        # 这样前端的 formatArtReport 函数可以完全控制格式化
+        
+        # 只清理多余的空行
         lines = description.split('\n')
         formatted_lines = []
         empty_line_count = 0
@@ -156,19 +173,7 @@ def describe_image_with_qwen(image_path):
         for line in lines:
             line = line.strip()
             if line:
-                # 检查是否是标题行
-                title_match = re.match(r'^(#{1,3})\s*(.+)$', line)
-                if title_match:
-                    title_text = title_match.group(2)
-                    formatted_lines.append(f'<h3>{title_text}</h3>')
-                elif len(line) < 15 and (line.endswith('：') or line.endswith(':') or 
-                                        line.endswith('说明') or line.endswith('定位') or 
-                                        line.endswith('宗旨') or line.endswith('基')):
-                    title_text = line.rstrip('：:')
-                    formatted_lines.append(f'<h3>{title_text}</h3>')
-                else:
-                    formatted_lines.append(line)
-                
+                formatted_lines.append(line)
                 empty_line_count = 0
             else:
                 empty_line_count += 1
@@ -414,9 +419,9 @@ def upload_image():
         app.logger.info(f"开始图像分割: {uploaded_path}")
         segmented_path, original_path, seg_info = image_segmentation_service.segment_artwork(
             uploaded_path,
-            input_size=1024,
-            iou_threshold=0.7,
-            conf_threshold=0.25,
+            input_size=2048,
+            iou_threshold=0.6,
+            conf_threshold=0.1,
             better_quality=True,
             withContours=True,
             use_retina=True,
@@ -432,9 +437,9 @@ def upload_image():
         from artwork_description import image_description_service
 
         # --- 修改开始：使用云端模型代替本地 Ollama ---
-        app.logger.info(f"开始云端图像描述: {segmented_path}")
-        # 直接调用我们刚才写的云端函数
-        success, description = describe_image_with_qwen(segmented_path)
+        app.logger.info(f"开始云端图像描述: {original_path}")
+        # 直接调用我们刚才写的云端函数 - 使用原始图像，而不是分割后的图像
+        success, description = describe_image_with_qwen(original_path)
         
         if not success:
             app.logger.warning(f"云端图像描述失败: {description}")

@@ -170,28 +170,10 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.analyzeBtn.addEventListener('click', handleImageAnalysis);
         setupDragAndDrop(elements.uploadArea1, elements.imageUpload1);
 
-        // 修复点击上传区域触发文件选择
-        if (elements.uploadZone1) {
-            elements.uploadZone1.addEventListener('click', (e) => {
-                if (!e.target.matches('input')) {
-                    elements.imageUpload1.click();
-                }
-            });
-        }
-
         // 以图搜图
         setupImageUpload(elements.imageUpload2, elements.preview2, elements.previewImg2, 'search');
         elements.searchImageBtn.addEventListener('click', handleImageSearch);
         setupDragAndDrop(elements.uploadArea2, elements.imageUpload2);
-
-        // 修复点击上传区域触发文件选择
-        if (elements.uploadZone2) {
-            elements.uploadZone2.addEventListener('click', (e) => {
-                if (!e.target.matches('input')) {
-                    elements.imageUpload2.click();
-                }
-            });
-        }
 
         // 以文搜图
         elements.searchTextBtn.addEventListener('click', handleTextSearch);
@@ -269,16 +251,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateButtonState(type);
             }
         });
-
-        // 确保文件输入框样式正确
-        inputElement.style.position = 'absolute';
-        inputElement.style.width = '100%';
-        inputElement.style.height = '100%';
-        inputElement.style.opacity = '0';
-        inputElement.style.cursor = 'pointer';
-        inputElement.style.zIndex = '10';
-        inputElement.style.top = '0';
-        inputElement.style.left = '0';
     }
 
     // 设置拖拽上传
@@ -574,14 +546,14 @@ document.addEventListener('DOMContentLoaded', () => {
                             <div class="result-image" style="flex: 1; text-align: center; display: flex; flex-direction: column; align-items: center;">
                                 <img src="${result.original_image}" alt="原始图片" 
                                     style="width: 100%; height: auto; border-radius: 8px; display: block; margin-bottom: 0 !important; padding-bottom: 0 !important;">
-                                <!-- 关键点：margin-top 设为 2px，让文字“吸”在图片底部 -->
+                                <!-- 关键点：margin-top 设为 2px，让文字"吸"在图片底部 -->
                                 <div class="result-caption" style="font-size: 0.9em; color: #666; margin: 2px 0 0 0 !important; padding: 0 !important; line-height: 1.2;">原始图片</div>
                             </div>
                             
                             <div class="result-image" style="flex: 1; text-align: center; display: flex; flex-direction: column; align-items: center;">
                                 <img src="${result.segmented_image}" alt="分割结果" 
                                     style="width: 100%; height: auto; border-radius: 8px; display: block; margin-bottom: 0 !important; padding-bottom: 0 !important;">
-                                <!-- 关键点：margin-top 设为 2px，让文字“吸”在图片底部 -->
+                                <!-- 关键点：margin-top 设为 2px，让文字"吸"在图片底部 -->
                                 <div class="result-caption" style="font-size: 0.9em; color: #666; margin: 2px 0 0 0 !important; padding: 0 !important; line-height: 1.2;">分割结果</div>
                             </div>
                         </div>
@@ -977,49 +949,92 @@ ${similarity}
         });
     }
 
+    // 自定义艺术报告格式化工具
+    function formatArtReport(text) {
+        if (!text) return '';
+
+        let lines = text.split('\n');
+        let formattedHtml = '';
+        let inList = false;
+
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i].trim();
+            if (!line) {
+                if (inList) {
+                    formattedHtml += '</ul>';
+                    inList = false;
+                }
+                continue;
+            }
+
+            // 1. 识别 # 开头的标题 (优先级最高)
+            if (line.startsWith('#')) {
+                if (inList) {
+                    formattedHtml += '</ul>';
+                    inList = false;
+                }
+                let title = line.replace(/^#+\s*/, '');
+                formattedHtml += '<h3 style="color:#c0392b; font-size:1.15em; border-bottom:1px solid #f0f0f0; margin-top:15px; margin-bottom:10px; padding-bottom:5px;">' + title + '</h3>';
+                continue;
+            }
+
+            // 2. 识别 h3 HTML 标签
+            if (line.toLowerCase().includes('h3')) {
+                if (inList) {
+                    formattedHtml += '</ul>';
+                    inList = false;
+                }
+                let title = line.replace(/<\/?h3>/gi, '');
+                formattedHtml += '<h3 style="color:#c0392b; font-size:1.15em; border-bottom:1px solid #f0f0f0; margin-top:15px; margin-bottom:10px; padding-bottom:5px;">' + title + '</h3>';
+                continue;
+            }
+
+            // 3. 识别数字标题 (1. 主题与内容)
+            if (/^\d+[.、]\s*/.test(line)) {
+                if (inList) {
+                    formattedHtml += '</ul>';
+                    inList = false;
+                }
+                formattedHtml += '<h4 style="color:#2a7a52; font-size:1.05em; margin-top:12px; margin-bottom:8px;">' + line + '</h4>';
+                continue;
+            }
+
+            // 4. 识别列表项 (- 或 * 开头)
+            if (line.startsWith('- ') || line.startsWith('* ')) {
+                if (!inList) {
+                    formattedHtml += '<ul style="margin-left:20px; margin-bottom:10px;">';
+                    inList = true;
+                }
+                formattedHtml += '<li style="margin-bottom:5px; line-height:1.6;">' + line.substring(2) + '</li>';
+                continue;
+            }
+
+            // 5. 识别带冒号的小标题
+            let colonMatch = line.match(/^([^：:]{1,15})[：:]\s*(.*)$/);
+            if (colonMatch) {
+                if (inList) {
+                    formattedHtml += '</ul>';
+                    inList = false;
+                }
+                formattedHtml += '<p style="margin-bottom:5px; line-height:1.6;"><strong style="color:#2a7a52;">' + colonMatch[1] + '：</strong>' + colonMatch[2] + '</p>';
+                continue;
+            }
+
+            // 6. 普通段落
+            if (inList) {
+                formattedHtml += '</ul>';
+                inList = false;
+            }
+            formattedHtml += '<p style="margin-bottom:8px; line-height:1.7;">' + line + '</p>';
+        }
+
+        if (inList) {
+            formattedHtml += '</ul>';
+        }
+
+        return formattedHtml;
+    }
+
     // 初始化应用
     init();
-    // 自定义艺术报告格式化工具
-function formatArtReport(text) {
-    if (!text) return '';
-
-    // 1. 处理大标题 (例如: # 标题 或 中国古代...分析报告)
-    // 如果某一行包含“分析报告”或者以 # 开头
-    let lines = text.split('\n');
-    let formattedHtml = lines.map(line => {
-        line = line.trim();
-        if (!line) return '';
-
-        // 识别大标题
-        if (line.startsWith('# ') || line.includes('分析报告')) {
-            return `<h1 class="report-title" style="text-align:center; color:#c0392b; border-bottom:2px solid #e0e0e0; padding-bottom:10px; margin-bottom:15px;">${line.replace('# ', '')}</h1>`;
-        }
-
-        // 识别二级标题 (例如: 1. 主题与内容)
-        if (/^\d+\./.test(line)) {
-            return `<h2 class="section-title" style="color:#c0392b; font-size:1.2em; border-bottom:1px solid #f0f0f0; margin-top:15px; padding-bottom:5px;">${line}</h2>`;
-        }
-
-        // 识别小标题 (例如: 视觉描述: 或 细节解读:)
-        if (line.includes(':') || line.includes('：')) {
-            let parts = line.split(/[:：]/);
-            if (parts[0].length < 10) { // 避免把长句子里的冒号也当成标题
-                return `<p><strong style="color:#c0392b; font-size:1.05em;">${parts[0]}：</strong>${parts.slice(1).join('：')}</p>`;
-            }
-        }
-
-        // 识别列表 (以 - 或 * 开头)
-        if (line.startsWith('- ') || line.startsWith('* ')) {
-            return `<li style="margin-left:20px; margin-bottom:5px; list-style-type: disc;">${line.substring(2)}</li>`;
-        }
-
-        // 普通段落
-        return `<p style="margin-bottom:10px; line-height:1.7; text-indent: 0em;">${line}</p>`;
-    }).join('');
-
-    // 处理加粗 **文本**
-    formattedHtml = formattedHtml.replace(/\*\*(.*?)\*\*/g, '<strong style="color:#c0392b;">$1</strong>');
-
-    return formattedHtml;
-}
 });

@@ -1139,9 +1139,9 @@ class ImageSearchService:
                 if raw_score > 0.998:
                     continue
 
-                # 正常处理逻辑
-                display_score = round(raw_score * 100, 1)
-                display_score = min(100.0, max(0.0, display_score))
+                # 正常处理逻辑 - 返回0-1之间的数值，让前端乘以100显示百分比
+                display_score = raw_score
+                display_score = min(1.0, max(0.0, display_score))
 
                 artwork_info = self._get_complete_artwork_info(title)
                 final_artworks.append({
@@ -1320,8 +1320,8 @@ class ImageSearchService:
                 info = self._get_complete_artwork_info(title)
                 
                 # --- 核心：知识权重提升 (Boosting) ---
-                # 将原始余弦值转为百分比基数（如 0.25 -> 25.0）
-                boosted_score = raw_score * 100 
+                # 保持0-1之间的数值
+                boosted_score = raw_score 
                 
                 # A. 朝代匹配加分（权重最高）
                 # 如果用户搜“宋”，画作朝代是“北宋”或“南宋”，加分
@@ -1330,14 +1330,14 @@ class ImageSearchService:
                     if dk in text: # 用户搜了某个朝代
                         actual_dynasty = info.get('dynasty', '')
                         if dk in actual_dynasty:
-                            boosted_score += 30.0  # 匹配到朝代，大幅加分
+                            boosted_score += 0.3  # 匹配到朝代，大幅加分
                             break # 匹配一个朝代就够了
 
                 # B. 风格/类型匹配加分
                 style_keywords = ["山水", "人物", "花鸟", "工笔", "写意"]
                 for sk in style_keywords:
                     if sk in text and sk in info.get('style', ''):
-                        boosted_score += 10.0
+                        boosted_score += 0.1
 
                 temp_list.append({
                     'title': title,
@@ -1355,8 +1355,8 @@ class ImageSearchService:
             # 4. 截取前 top_k 个，并格式化分值
             final_artworks = []
             for item in temp_list[:top_k]:
-                # 确保分值美观（不超过99.9）
-                item['similarity'] = round(min(99.9, item['similarity']), 1)
+                # 确保分值在合理范围（不超过1.0，不低于0）
+                item['similarity'] = min(1.0, max(0.0, item['similarity']))
                 final_artworks.append(item)
 
             # 5. 【关键】同时返回 results 和 artworks 两个键，确保前端能接到
