@@ -321,66 +321,41 @@ class Neo4jRAGSystem:
         # 1. 清理多余的空白字符
         content = content.strip()
 
-        # 2. 替换常见的格式问题
-        replacements = {
-            '**\n**': '\n\n',  # 修复加粗换行问题
-            '**-**': ' - ',  # 修复加粗和破折号连在一起的问题
-            '**：**': '：',  # 修复加粗冒号问题
-            '**：': '：',  # 修复不对称的加粗
-            '**。': '。',  # 修复句号前的加粗
-            '**，': '，',  # 修复逗号前的加粗
-            '**！': '！',  # 修复感叹号前的加粗
-            '**？': '？',  # 修复问号前的加粗
-            '### ': '\n### ',  # 确保标题前有换行
-            '## ': '\n## ',
-            '# ': '\n# ',
-            '**\n': '**\n\n',  # 加粗后添加空行
-            '\n###': '\n\n###',  # 标题前添加空行
-            '###\n': '###\n\n',  # 标题后添加空行
-            '\n1. ': '\n\n1. ',  # 列表前添加空行
-            '\n2. ': '\n\n2. ',
-            '\n3. ': '\n\n3. ',
-            '\n4. ': '\n\n4. ',
-            '\n5. ': '\n\n5. ',
-            '\n6. ': '\n\n6. ',
-            '\n7. ': '\n\n7. ',
-            '\n8. ': '\n\n8. ',
-            '\n9. ': '\n\n9. ',
-            '\n10. ': '\n\n10. ',
-            '\n- ': '\n\n- ',  # 无序列表前添加空行
-            '\n* ': '\n\n* ',
-        }
+        # 2. 移除所有加粗标记
+        content = content.replace('**', '')
 
-        for old, new in replacements.items():
-            content = content.replace(old, new)
-
-        # 3. 确保每个段落之间有适当的间距
+        # 3. 处理标题标记，将#标题转换为HTML标题
         lines = content.split('\n')
         formatted_lines = []
-        skip_next = False
+        empty_line_count = 0
 
-        for i, line in enumerate(lines):
+        for line in lines:
             line = line.strip()
-            if not line:
-                if formatted_lines and formatted_lines[-1]:  # 避免连续空行
+            if line:
+                # 检查是否是标题行（以1-3个#开头，或者看起来像标题）
+                is_title = False
+                
+                # 检查是否以#开头
+                title_match = re.match(r'^(#{1,3})\s*(.+)$', line)
+                if title_match:
+                    title_text = title_match.group(2)
+                    formatted_lines.append(f'<h3>{title_text}</h3>')
+                    is_title = True
+                # 检查是否是短文本且后面有冒号，或者看起来像标题
+                elif len(line) < 15 and (line.endswith('：') or line.endswith(':') or 
+                                        line.endswith('说明') or line.endswith('定位') or 
+                                        line.endswith('宗旨') or line.endswith('基')):
+                    title_text = line.rstrip('：:')
+                    formatted_lines.append(f'<h3>{title_text}</h3>')
+                    is_title = True
+                else:
+                    formatted_lines.append(line)
+                
+                empty_line_count = 0
+            else:
+                empty_line_count += 1
+                if empty_line_count == 1 and formatted_lines:
                     formatted_lines.append('')
-                continue
-
-            # 检查是否为标题
-            is_title = line.startswith('###') or line.startswith('##') or line.startswith('#')
-            is_list_item = re.match(r'^\d+\.\s', line) or line.startswith('- ') or line.startswith('* ')
-
-            # 如果是标题，前面添加空行（除非是第一个元素）
-            if is_title and formatted_lines and formatted_lines[-1]:
-                formatted_lines.append('')
-
-            # 如果是列表项，前面添加空行（如果前一行不是列表）
-            if is_list_item and formatted_lines and formatted_lines[-1] and not re.match(r'^\d+\.\s',
-                                                                                         formatted_lines[-1]) and not \
-            formatted_lines[-1].startswith(('- ', '* ')):
-                formatted_lines.append('')
-
-            formatted_lines.append(line)
 
         # 4. 清理开头和结尾的空行
         while formatted_lines and not formatted_lines[0]:
@@ -390,9 +365,6 @@ class Neo4jRAGSystem:
 
         # 5. 合并处理好的行
         result = '\n'.join(formatted_lines)
-
-        # 6. 最后再做一些全局替换
-        result = re.sub(r'\n{3,}', '\n\n', result)  # 替换3个以上连续空行为2个
 
         return result
 

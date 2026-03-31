@@ -168,7 +168,44 @@ class ArtworkDescriptionService:
         # 提取 Ollama 返回的核心内容
             if 'message' in result and 'content' in result['message']:
                 content = result['message']['content']
-                return True, content.strip()
+                content = content.replace('**', '')
+                import re
+                
+                # 处理标题标记，将#标题转换为HTML标题
+                lines = content.split('\n')
+                formatted_lines = []
+                empty_line_count = 0
+
+                for line in lines:
+                    line = line.strip()
+                    if line:
+                        # 检查是否是标题行
+                        title_match = re.match(r'^(#{1,3})\s*(.+)$', line)
+                        if title_match:
+                            title_text = title_match.group(2)
+                            formatted_lines.append(f'<h3>{title_text}</h3>')
+                        elif len(line) < 15 and (line.endswith('：') or line.endswith(':') or 
+                                                line.endswith('说明') or line.endswith('定位') or 
+                                                line.endswith('宗旨') or line.endswith('基')):
+                            title_text = line.rstrip('：:')
+                            formatted_lines.append(f'<h3>{title_text}</h3>')
+                        else:
+                            formatted_lines.append(line)
+                        
+                        empty_line_count = 0
+                    else:
+                        empty_line_count += 1
+                        if empty_line_count == 1 and formatted_lines:
+                            formatted_lines.append('')
+
+                # 清理开头和结尾的空行
+                while formatted_lines and not formatted_lines[0]:
+                    formatted_lines.pop(0)
+                while formatted_lines and not formatted_lines[-1]:
+                    formatted_lines.pop()
+
+                result = '\n'.join(formatted_lines)
+                return True, result.strip()
             else:
                 return False, f"响应格式异常，无法提取描述内容。原始响应: {result}"
 

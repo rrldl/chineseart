@@ -501,6 +501,10 @@ document.addEventListener('DOMContentLoaded', () => {
                                 thinkingProcess += data.content + '\n';
                             } else if (data.type === 'answer') {
                                 answer = data.content;
+                                const contentBox = thinkingMessage.querySelector('.message-content');
+                                if (contentBox) {
+                                    contentBox.innerHTML = answer; 
+                                }
                             }
                         } catch (e) {
                             console.error('解析SSE数据失败:', e);
@@ -561,25 +565,36 @@ document.addEventListener('DOMContentLoaded', () => {
             if (result.success) {
                 // 显示分割和描述结果
                 const content = `
-                    <div class="segmentation-result">
-                        <h4>图像分析结果</h4>
-                        <div class="result-images">
-                            <div class="result-image">
-                                <img src="${result.original_image}" alt="原始图片">
-                                <div class="result-caption">原始图片</div>
+                    <div class="segmentation-result" style="margin: 0; padding: 0; display: flex; flex-direction: column;">
+                        <!-- 1. 顶部标题：向上微调，紧贴回复框顶部 -->
+                        <h4 style="margin: 0 !important; padding: 0 !important; line-height: 1; font-size: 1.05em; color: #c0392b; transform: translateY(-4px);">图像分析结果</h4>
+                        
+                        <!-- 2. 图片区域：移除多余下边距 -->
+                        <div class="result-images" style="display: flex; gap: 10px; margin-top: 4px; margin-bottom: 0;">
+                            <div class="result-image" style="flex: 1; text-align: center; display: flex; flex-direction: column; align-items: center;">
+                                <img src="${result.original_image}" alt="原始图片" 
+                                    style="width: 100%; height: auto; border-radius: 8px; display: block; margin-bottom: 0 !important; padding-bottom: 0 !important;">
+                                <!-- 关键点：margin-top 设为 2px，让文字“吸”在图片底部 -->
+                                <div class="result-caption" style="font-size: 0.9em; color: #666; margin: 2px 0 0 0 !important; padding: 0 !important; line-height: 1.2;">原始图片</div>
                             </div>
-                            <div class="result-image">
-                                <img src="${result.segmented_image}" alt="分割结果">
-                                <div class="result-caption">分割结果</div>
+                            
+                            <div class="result-image" style="flex: 1; text-align: center; display: flex; flex-direction: column; align-items: center;">
+                                <img src="${result.segmented_image}" alt="分割结果" 
+                                    style="width: 100%; height: auto; border-radius: 8px; display: block; margin-bottom: 0 !important; padding-bottom: 0 !important;">
+                                <!-- 关键点：margin-top 设为 2px，让文字“吸”在图片底部 -->
+                                <div class="result-caption" style="font-size: 0.9em; color: #666; margin: 2px 0 0 0 !important; padding: 0 !important; line-height: 1.2;">分割结果</div>
                             </div>
                         </div>
-                        <div class="description-box">
-                            <h4>图像描述</h4>
-                            <p>${result.description || '未能生成描述'}</p>
+
+                        <!-- 3. 图像描述区：使用 margin-top 控制与上方标签文字的距离 -->
+                        <div class="description-box" style="margin-top: 10px; padding: 10px 12px; background: #fff; border-radius: 8px; border: 1px solid #eee; position: relative;">
+                            <h4 style="margin: 0 0 5px 0 !important; padding: 0 !important; font-size: 1.05em; color: #2a7a52; border-bottom: 1px solid #f0f0f0; padding-bottom: 5px !important;">图像描述</h4>
+                            <div class="description-content" style="line-height: 1.6; color: #333; font-size: 0.95em; margin-top: 5px;">
+                                ${formatArtReport(result.description || '未能生成描述')}
+                            </div>
                         </div>
                     </div>
                 `;
-
                 addMessage(content, 'assistant');
             } else {
                 throw new Error(result.error || '图像处理失败');
@@ -749,7 +764,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 const author = artwork.author || artwork.properties?.author || artwork.properties?.created_by || '未知作者';
                 const dynasty = artwork.dynasty || artwork.properties?.dynasty || '';
                 const similarity = artwork.similarity !== undefined ? 
-                                 `相似度: ${artwork.similarity.toFixed(1)}%` : '';
+                                 `相似度: ${(artwork.similarity * 100).toFixed(1)}%` : '';
+                
                 // 构造图片URL - 直接使用画作标题
                 let imageUrl = '';
                 if (title && title !== '未命名作品') {
@@ -840,7 +856,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const dimensions = artwork.dimensions || artwork.properties?.dimensions || '';
         const collection = artwork.collection || artwork.properties?.collection || '';
         const similarity = artwork.similarity !== undefined ? 
-                        `相似度: ${artwork.similarity.toFixed(1)}%` : '';
+                         `相似度: ${(artwork.similarity * 100).toFixed(1)}%` : '';
 
         // 尝试获取更多详细信息
         let moreDetails = '';
@@ -963,4 +979,47 @@ ${similarity}
 
     // 初始化应用
     init();
+    // 自定义艺术报告格式化工具
+function formatArtReport(text) {
+    if (!text) return '';
+
+    // 1. 处理大标题 (例如: # 标题 或 中国古代...分析报告)
+    // 如果某一行包含“分析报告”或者以 # 开头
+    let lines = text.split('\n');
+    let formattedHtml = lines.map(line => {
+        line = line.trim();
+        if (!line) return '';
+
+        // 识别大标题
+        if (line.startsWith('# ') || line.includes('分析报告')) {
+            return `<h1 class="report-title" style="text-align:center; color:#c0392b; border-bottom:2px solid #e0e0e0; padding-bottom:10px; margin-bottom:15px;">${line.replace('# ', '')}</h1>`;
+        }
+
+        // 识别二级标题 (例如: 1. 主题与内容)
+        if (/^\d+\./.test(line)) {
+            return `<h2 class="section-title" style="color:#c0392b; font-size:1.2em; border-bottom:1px solid #f0f0f0; margin-top:15px; padding-bottom:5px;">${line}</h2>`;
+        }
+
+        // 识别小标题 (例如: 视觉描述: 或 细节解读:)
+        if (line.includes(':') || line.includes('：')) {
+            let parts = line.split(/[:：]/);
+            if (parts[0].length < 10) { // 避免把长句子里的冒号也当成标题
+                return `<p><strong style="color:#c0392b; font-size:1.05em;">${parts[0]}：</strong>${parts.slice(1).join('：')}</p>`;
+            }
+        }
+
+        // 识别列表 (以 - 或 * 开头)
+        if (line.startsWith('- ') || line.startsWith('* ')) {
+            return `<li style="margin-left:20px; margin-bottom:5px; list-style-type: disc;">${line.substring(2)}</li>`;
+        }
+
+        // 普通段落
+        return `<p style="margin-bottom:10px; line-height:1.7; text-indent: 0em;">${line}</p>`;
+    }).join('');
+
+    // 处理加粗 **文本**
+    formattedHtml = formattedHtml.replace(/\*\*(.*?)\*\*/g, '<strong style="color:#c0392b;">$1</strong>');
+
+    return formattedHtml;
+}
 });
