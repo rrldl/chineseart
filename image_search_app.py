@@ -4,7 +4,10 @@
 image_search_app.py - 为Flask应用封装的图像搜索服务
 """
 print("开始导入模块...")
+import dashscope
+from dashscope import MultiModalEmbedding
 
+import urllib.parse
 # 尝试导入必要的模块
 try:
     import os
@@ -157,26 +160,64 @@ class ImageSearchService:
             self._connect_database()
             self.database_connected = True
     def extract_image_embedding(self, image_path):
-        """【云端版】提取图片特征 (1024维)"""
+        """【终极修复版】支持超大图、自动递归压缩至 3MB 以下"""
         try:
             import dashscope
             from dashscope import MultiModalEmbedding
             dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
 
             abs_path = os.path.abspath(image_path)
+            
+            # 1. 检查是否需要压缩 (大于 2.8MB 或 BMP 格式)
+            current_size = os.path.getsize(abs_path)
+            is_bmp = abs_path.lower().endswith('.bmp')
+            
+            if current_size > 2.8 * 1024 * 1024 or is_bmp:
+                print(f"DEBUG: 正在压缩超大大图/BMP ({current_size/1024/1024:.1f}MB)...")
+                temp_path = os.path.join(os.path.dirname(abs_path), "temp_api_upload.jpg")
+                
+                with Image.open(abs_path) as img:
+                    if img.mode != 'RGB':
+                        img = img.convert('RGB')
+                    
+                    # 如果图片像素过大（比如超过 5000px），先进行等比例缩放，加快处理速度
+                    max_dim = 4096
+                    if max(img.size) > max_dim:
+                        scale = max_dim / max(img.size)
+                        new_size = (int(img.size[0] * scale), int(img.size[1] * scale))
+                        img = img.resize(new_size, Image.LANCZOS)
+                    
+                    # 递归调整质量，直到文件小于 2.8MB
+                    quality = 85
+                    img.save(temp_path, "JPEG", quality=quality)
+                    while os.path.getsize(temp_path) > 2.8 * 1024 * 1024 and quality > 10:
+                        quality -= 10
+                        img.save(temp_path, "JPEG", quality=quality)
+                
+                final_upload_path = temp_path
+                is_temp_created = True
+            else:
+                final_upload_path = abs_path
+                is_temp_created = False
+
+            # 2. 调用 API
             result = MultiModalEmbedding.call(
                 model='multimodal-embedding-v1',
-                input=[{'image': f"file://{abs_path}"}]
+                input=[{'image': f"file://{os.path.abspath(final_upload_path)}"}]
             )
 
+            # 3. 立即清理临时文件
+            if is_temp_created and os.path.exists(final_upload_path):
+                os.remove(final_upload_path)
+
             if result.status_code == 200:
-                embedding_data = result.output['embeddings'][0]['embedding']
-                return np.array(embedding_data, dtype=np.float32)
+                return np.array(result.output['embeddings'][0]['embedding'], dtype=np.float32)
             else:
-                logger.error(f"图片特征提取失败: {result.message}")
+                print(f"API 报错: {result.message}")
                 return None
+
         except Exception as e:
-            logger.error(f"提取图片特征出错: {e}")
+            print(f"提取特征时发生错误: {e}")
             return None
     def enhance_text(self, text):
         """增强文本，提高搜索准确性"""
@@ -378,99 +419,44 @@ class ImageSearchService:
         print(f"✓ 文本增强完成，生成 {len(enhanced_texts)} 个增强文本")
         return enhanced_texts
 
+
     def _extract_text_embedding_without_cache(self, text):
-        """提取文本特征向量（无缓存版本）"""
+        """提取文本特征向量（切换为阿里云 API 版本，确保与数据库向量对齐）"""
         try:
-            # 文本增强
-            enhanced_texts = self.enhance_text(text)
+            # 1. 阿里云 API 调用
+            res = MultiModalEmbedding.call(
+                model='multimodal-embedding-v1',
+                input=[{'text': text}]
+            )
             
-            # 提取多个增强文本的特征并平均
-            embeddings = []
-            
-            # 处理增强文本
-            for enhanced_text in enhanced_texts:
-                # 处理长文本 - 截断到模型最大长度
-                try:
-                    # 尝试处理文本
-                    inputs = self.processor(text=[enhanced_text], return_tensors="pt", padding=True, truncation=True, max_length=77)
-                    
-                    inputs = {k: v.to(self.device) for k, v in inputs.items()}
-                    
-                    with torch.no_grad():
-                        text_features = self.model.get_text_features(**inputs)
-                        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-                        embeddings.append(text_features.cpu().numpy()[0])
-                except Exception:
-                    # 尝试更激进的截断
-                    try:
-                        truncated_text = enhanced_text[:30] + "..."
-                        inputs = self.processor(text=[truncated_text], return_tensors="pt", padding=True, truncation=True, max_length=77)
-                        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-                        
-                        with torch.no_grad():
-                            text_features = self.model.get_text_features(**inputs)
-                            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-                            embeddings.append(text_features.cpu().numpy()[0])
-                    except Exception:
-                        continue  # 跳过这个增强文本
-            
-            # 平均多个嵌入向量
-            if embeddings:
-                # 加权平均 - 给原始文本更高的权重
-                weights = []
-                for emb_text in enhanced_texts:
-                    if emb_text == text:
-                        weights.append(2.0)
-                    else:
-                        weights.append(1.0)
-                weights = np.array(weights) / sum(weights)
-                avg_embedding = np.average(embeddings, axis=0, weights=weights)
-                # 重新归一化
-                avg_embedding = avg_embedding / np.linalg.norm(avg_embedding)
-                return avg_embedding
+            if res.status_code == 200:
+                # 2. 提取并转化为 numpy 数组
+                embedding = np.array(res.output['embeddings'][0]['embedding'], dtype=np.float32)
+                # 3. 归一化（保证余弦相似度计算准确）
+                embedding = embedding / np.linalg.norm(embedding)
+                return embedding
             else:
-                # 如果增强失败，使用原始文本
-                # 处理长文本
-                try:
-                    inputs = self.processor(text=[text], return_tensors="pt", padding=True, truncation=True, max_length=77)
-                    inputs = {k: v.to(self.device) for k, v in inputs.items()}
-                    
-                    with torch.no_grad():
-                        text_features = self.model.get_text_features(**inputs)
-                        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-                        features_np = text_features.cpu().numpy()[0]
-                    return features_np
-                except Exception:
-                    # 尝试更激进的截断
-                    truncated_text = text[:30] + "..."
-                    inputs = self.processor(text=[truncated_text], return_tensors="pt", padding=True, truncation=True, max_length=77)
-                    inputs = {k: v.to(self.device) for k, v in inputs.items()}
-                    
-                    with torch.no_grad():
-                        text_features = self.model.get_text_features(**inputs)
-                        text_features = text_features / text_features.norm(dim=-1, keepdim=True)
-                        features_np = text_features.cpu().numpy()[0]
-                    return features_np
+                logger.error(f"阿里云 API 提取失败: {res.message}")
+                return None
+                
         except Exception as e:
-            error_msg = f"文本特征提取失败: {e}"
-            logger.error(error_msg)
+            logger.error(f"文本特征提取异常: {e}")
             return None
-    
     def extract_text_embedding(self, text):
-        """提取文本特征向量（带缓存）"""
-        # 确保模型已加载
-        self._ensure_model_loaded()
+        """提取文本特征向量（带缓存的壳子）"""
         
-        # 检查缓存
+        # 1. 检查缓存
         if text in self.text_embedding_cache:
-            print(f"✓ 从缓存中获取文本特征")
+            # print(f"✓ 从缓存中获取文本特征")
             return self.text_embedding_cache[text]
         
-        # 提取特征
+        # 2. 调用我们刚刚改好的阿里云 API 版本
+        # 删掉原来的 self._ensure_model_loaded()，不需要加载本地模型了
         embedding = self._extract_text_embedding_without_cache(text)
         
-        # 存入缓存
+        # 3. 存入缓存
         if embedding is not None:
+            # 这是一个防止缓存过大的管理方法，保留即可
             self._manage_cache(self.text_embedding_cache, text, embedding)
         
         return embedding
@@ -988,7 +974,7 @@ class ImageSearchService:
                             return None
 
                         # 获取完整的作品信息，包括作者和朝代
-                        artwork_info = self._get_complete_artwork_info(title)
+                        artwork_info = self._get_complete_artwork_info(node.identity)
                         
                         # 合并节点属性和完整信息
                         result_item.update({
@@ -1001,11 +987,12 @@ class ImageSearchService:
                             'date': node_properties.get('date', ''),
                             'dimensions': node_properties.get('dimensions', ''),
                             'collection': node_properties.get('collection', ''),
-                            'created_by': artwork_info.get('author', node_properties.get('author', ''))
+                            'created_by': artwork_info.get('author', node_properties.get('author', '')),
+                            'image_filename': node_properties.get('image_filename')
                         })
 
                         # 图片URL - 直接从artwork_images目录获取
-                        result_item['image_url'] = self._get_artwork_image_url(title)
+                        result_item['image_url'] = self._get_artwork_image_url(node_properties.get('path', title))
 
                     elif search_label == "Seal":
                         result_item.update({
@@ -1026,137 +1013,186 @@ class ImageSearchService:
             logger.error(f"处理节点失败: {e}")
         return None
     
-    def search_similar_images(self, query_vector, label="Artwork", top_k=5, min_similarity=0.01):
-        """在数据库中进行向量余弦相似度计算"""
-        # 将 numpy 数组转为 list 供 Cypher 使用
+    def search_similar_images(self, query_vector, label=None, top_k=10, min_similarity=0.01):
+        """
+        终极全门类向量搜索：适配 Artwork, Seal, Inscription, ArtistPortrait
+        特点：属性自动对齐，支持差异化字段展示
+        """
+        # 确保向量是列表格式
         vector_list = query_vector.tolist() if hasattr(query_vector, 'tolist') else query_vector
+        
+        # 构建标签过滤逻辑
+        label_filter = f":{label}" if label else ""
 
-        # 核心 Cypher：通过数学公式计算余弦相似度
+        # 改进的通用 Cypher 语句
+        # 核心逻辑：使用 coalesce 将不同节点的名称、作者等属性“归一化”
         query = f"""
-        MATCH (n:{label})
-        WHERE n.image_embedding IS NOT NULL
-        WITH n, n.image_embedding AS vece
-        WITH n, 
-            reduce(s=0.0, i in range(0, size(vece)-1) | s + vece[i] * $vector[i]) /
-            (sqrt(reduce(s=0.0, i in range(0, size(vece)-1) | s + vece[i]^2)) * 
-            sqrt(reduce(s=0.0, i in range(0, size($vector)-1) | s + $vector[i]^2)) + 0.00001) AS score
+        MATCH (n{label_filter})-[:hasAlignment]->(al:AlignmentNode)
+        WHERE (n:Artwork OR n:Seal OR n:Inscription OR n:ArtistPortrait)
+        AND al.embedding IS NOT NULL 
+        AND size(al.embedding) = size($vector)
+        
+        WITH n, al.embedding AS vece, $vector AS vecu, labels(n)[0] AS node_label
+        
+        // 计算余弦相似度
+        WITH n, node_label,
+            reduce(dot = 0.0, i IN range(0, size(vece)-1) | dot + vece[i] * vecu[i]) /
+            (sqrt(reduce(l2 = 0.0, i IN range(0, size(vece)-1) | l2 + vece[i]^2)) *
+            sqrt(reduce(r2 = 0.0, i IN range(0, size(vecu)-1) | r2 + vecu[i]^2)) + 0.00001) AS score
+        
         WHERE score > $min_score
-        RETURN n.title AS title, score AS similarity
+        
+        // 灵活提取字段
+        RETURN id(n) AS node_id, 
+            node_label AS label,
+            // 1. 标题归一化
+            coalesce(n.original_title, n.title, n.name) AS title, 
+            // 2. 作者归一化
+            coalesce(n.author, n.artist, n.artist_name, "未知作者") AS author,
+            // 3. 通用属性
+            n.dynasty AS dynasty,
+            n.description AS description,
+            n.path AS path,
+            // 4. 特有属性提取
+            n.content AS seal_content,  // 仅印章有值
+            n.style AS style,           // 印章风格 或 画作风格
+            n.tags AS tags,             // 题跋标签
+            n.category AS category,     // 艺术家类别
+            score AS similarity
         ORDER BY similarity DESC
         LIMIT $limit
         """
+        
         try:
-            # 使用 py2neo 的 run
-            results = self.graph.run(query, vector=vector_list, min_score=min_similarity, limit=top_k).data()
-            return results
+            # 执行查询
+            raw_results = self.graph.run(query, vector=vector_list, min_score=min_similarity, limit=top_k).data()
+            
+            processed_results = []
+            for res in raw_results:
+                # 统一处理图片 URL
+                if res.get('path'):
+                    # 调用你之前修改好的路径转换逻辑
+                    res['image_url'] = self._get_artwork_image_url(res['path'])
+                else:
+                    res['image_url'] = "default.jpg" # 占位图
+
+                # 保持相似度百分比格式（可选，方便前端显示）
+                res['similarity_percent'] = round(res['similarity'] * 100, 1)
+                
+                processed_results.append(res)
+                
+            return processed_results
+            
         except Exception as e:
-            logger.error(f"数据库查询出错: {e}")
+            import logging
+            logging.error(f"全门类向量查询出错: {e}")
             return []
-    def _get_complete_artwork_info(self, title):
-        """获取作品完整信息：支持关系节点和属性双重读取"""
+    def _get_complete_artwork_info(self, node_id, label=None):
+        """【通用版】支持所有艺术门类的详情查询"""
         try:
-            # 这里的 query 变量就是我之前说的 info_query 逻辑
+            # 使用 internal_id (Neo4j 的 id(n)) 查询，这是绝对唯一的
             query = """
-            MATCH (n:Artwork)
-            WHERE n.title = $title OR n.name = $title OR n.image_filename STARTS WITH $title
-            
-            // 1. 优先找连着的【作者】节点
-            OPTIONAL MATCH (n)-[:CREATED_BY]->(a:Artist)
-            
-            // 2. 优先找连着的【朝代】节点 (你刚才建立的 PART_OF 关系在这里生效)
-            OPTIONAL MATCH (n)-[:PART_OF]->(d:Dynasty)
-            
-            // 3. 优先找连着的【风格】节点 (适配你截图里的“属于流派”)
-            OPTIONAL MATCH (n)-[:属于流派|HAS_STYLE]->(s:Style)
-            
-            RETURN 
-                coalesce(a.name, n.author, '无确切作者') AS author,
-                coalesce(d.name, n.dynasty, '未知朝代') AS dynasty,
-                coalesce(s.name, n.style, '未知风格') AS style,
-                coalesce(n.description, n.info, '暂无描述') AS detail
-            LIMIT 1
+            MATCH (a) 
+            WHERE id(a) = $node_id
+            RETURN a, labels(a)[0] AS node_label
             """
-            result = self.graph.run(query, title=title).data()
-            if result:
-                return result[0]
-            # 如果彻底没找到，返回默认值
-            return {'author': '无确切作者', 'dynasty': '未知朝代', 'style': '未知风格', 'detail': '暂无描述'}
+            res = self.graph.run(query, node_id=int(node_id)).data()
+            
+            if res:
+                node = res[0]['a']
+                curr_label = res[0]['node_label']
+                
+                # 统一字段提取逻辑 (使用 get 处理不同标签的差异)
+                return {
+                    'label': curr_label,
+                    'title': node.get('original_title') or node.get('title') or node.get('name', '未知标题'),
+                    'author': node.get('author') or node.get('artist') or node.get('artist_name', '未知作者'),
+                    'dynasty': node.get('dynasty', '未知'),
+                    'style': node.get('style') or node.get('sealType') or '未知',
+                    'description': node.get('description', '暂无描述'),
+                    'path': node.get('path'), # 统一后的路径
+                    'content': node.get('content', '') # 印章特有
+                }
+            return {}
         except Exception as e:
-            logger.error(f"获取完整信息失败: {e}")
-            return {'author': '无确切作者', 'dynasty': '未知朝代', 'style': '未知风格', 'detail': '暂无描述'}
-    def _get_artwork_image_url(self, title):
-        """根据画作标题获取图片URL - 直接访问artwork_images目录"""
+            logger.error(f"详情查询失败: {e}")
+            return {}
+    import urllib.parse
+
+    def _get_artwork_image_url(self, file_path):
+        """
+        【终极适配版】将本地磁盘路径转换为浏览器可访问的 URL
+        支持：Artwork, Seal, Inscription, ArtistPortrait 
+        """
+        # 1. 安全检查：如果路径为空或是不详，返回默认占位图
+        if not file_path or file_path == "不详" or file_path == "None":
+            return "/static/default_art.png"
+        
         try:
-            if not title:
-                return None
-
-            # 清理标题，去除括号等特殊字符
-            clean_title = title.split('（')[0].split('(')[0].strip()
-            if not clean_title:
-                return None
-
-            # 尝试不同的图片扩展名
-            extensions = ['.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG']
-
-            # 检查图片是否在artwork_images/artworks目录下
-            for ext in extensions:
-                image_path = os.path.join('artwork_images', 'artworks', clean_title + ext)
-                if os.path.exists(image_path):
-                    # 直接返回artwork_images目录的路径
-                    return f"/artwork_image/{clean_title}{ext}"
-
-            # 如果找不到，尝试查找原始标题（不带清理）
-            for ext in extensions:
-                image_path = os.path.join('artwork_images', 'artworks', title + ext)
-                if os.path.exists(image_path):
-                    return f"/artwork_image/{title}{ext}"
-
-            # 如果还找不到，记录日志
-            logger.warning(f"找不到画作图片: {title} (清理后: {clean_title})")
-            return None
+            # 2. 路径标准化：将 Windows 的反斜杠 \ 统一换成正斜杠 /
+            # 这样能避免很多编码上的灵异问题
+            safe_path = file_path.replace("\\", "/")
+            
+            # 3. URL 编码：这是解决“长江万里图.jpg”这类中文名图片显示不了的关键
+            # 它会把中文转换成浏览器认识的 %xx 格式
+            encoded_path = urllib.parse.quote(safe_path)
+            
+            # 4. 返回指向你在 artapp.py 中定义的通用图片接口
+            # 注意：这里的 /api/get_image 必须和你在 Flask 里写的路由对齐
+            return f"/api/get_image?path={encoded_path}"
+            
         except Exception as e:
-            logger.error(f"获取图片URL失败: {e}")
-            return None
+            import logging
+            logging.error(f"图片路径 URL 编码失败: {e}, 路径为: {file_path}")
+            return "/static/default_art.png"
 
-    def search_by_image(self, image_path, top_k=5, min_similarity=0.1):
+    def search_by_image(self, image_path, top_k=10, min_similarity=0.1):
         try:
             query_emb = self.extract_image_embedding(image_path)
             if query_emb is None: return {"error": "特征提取失败"}
-
-            # 1. 多请求一个结果 (top_k + 1)，防止过滤掉“自己”后数量不足
-            artwork_results = self.search_similar_images(query_emb, "Artwork", top_k + 1, min_similarity)
+            
+            # 这里的 50 是为了给“去重”留出空间
+            results = self.search_similar_images(query_emb, "Artwork", 50, min_similarity)
             
             final_artworks = []
-            for res in artwork_results:
-                # 如果结果已经凑够了 top_k 个，就停止
-                if len(final_artworks) >= top_k:
-                    break
+            seen_filenames = set()
+
+            for res in results:
+                raw_score = float(res.get('similarity', 0))
+                
+                # --- 修复 1：排除自身 ---
+                # 如果上传的就是库里原图，相似度会 > 0.999，直接跳过
+                if raw_score > 0.999:
+                    continue
                     
                 title = res.get('title', '未知')
-                raw_score = float(res.get('similarity', 0))
-
-                # 2. 过滤掉几乎完全一样的原图 (相似度 > 99.8%)
-                if raw_score > 0.998:
-                    continue
-
-                # 正常处理逻辑 - 返回0-1之间的数值，让前端乘以100显示百分比
-                display_score = raw_score
-                display_score = min(1.0, max(0.0, display_score))
-
-                artwork_info = self._get_complete_artwork_info(title)
+                img_file = res.get('image_filename')
+                
+                # --- 修复 2：防止局部图重复展示 ---
+                if img_file in seen_filenames: continue
+                seen_filenames.add(img_file)
+                
+                # --- 修复 3：调用修正后的详情查询 ---
+                artwork_info = self._get_complete_artwork_info(res.get('node_id'))
+                    
                 final_artworks.append({
                     'title': title,
-                    'similarity': display_score, 
-                    'author': artwork_info.get('author', '未知作者'),
+                    'similarity': round(raw_score, 4),  # 保留 4 位小数，比如 0.8085
+                    'author': artwork_info.get('author', '未知'),
                     'dynasty': artwork_info.get('dynasty', '未知'),
-                    'style': artwork_info.get('style', '未知'),     # 【新增】
-                    'description': artwork_info.get('detail', '暂无描述'), # 【新增】
-                    'image_url': self._get_artwork_image_url(title)
+                    'style': artwork_info.get('style', '未知'),
+                    'description': artwork_info.get('description', '暂无描述'),
+                    'image_filename': img_file, 
+                    'image_path': artwork_info.get('path'),
+                    'image_url': f"/artwork_image/{img_file}"
                 })
+                
+                if len(final_artworks) >= top_k: break
 
             return {"success": True, "artworks": final_artworks}
         except Exception as e:
-            return {"error": str(e)}   
+            logger.error(f"search_by_image 失败: {e}")
+            return {"error": str(e)}
     def search_by_author(self, author, top_k=5):
         try:
             # 改为直接查询 Artwork 节点的 author 属性
@@ -1187,7 +1223,7 @@ class ImageSearchService:
                     author_similarity = 0.8  # 反向部分匹配
                 
                 # 获取完整信息
-                artwork_info = self._get_complete_artwork_info(node_properties.get('title', ''))
+                artwork_info = self._get_complete_artwork_info(node.identity)
                 
                 result_item = {
                     'similarity': author_similarity,  # 根据匹配程度设置相似度
@@ -1243,7 +1279,7 @@ class ImageSearchService:
                 node_properties = dict(node)
                 
                 # 获取完整信息
-                artwork_info = self._get_complete_artwork_info(node_properties.get('title', ''))
+                artwork_info = self._get_complete_artwork_info(node.identity)
                 
                 # 计算标题匹配度
                 title_similarity = 1.0
@@ -1286,10 +1322,12 @@ class ImageSearchService:
             return []
 
     def search_by_text(self, text, top_k=5, min_similarity=0.01):
-        """【最终修正版】以文搜图：带知识增强与高兼容性"""
+        """【最终修正版】以文搜图：基于全门类查询和动态属性合并"""
         try:
             import dashscope
             from dashscope import MultiModalEmbedding
+            import os
+            
             dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
 
             # 1. 语义特征提取
@@ -1298,68 +1336,68 @@ class ImageSearchService:
                 input=[{'text': text}]
             )
             if result.status_code != 200:
-                logger.error(f"特征提取失败: {result.message}")
-                return {"success": False, "error": "特征提取失败", "results": [], "artworks": []}
+                return {"success": False, "error": "特征提取失败", "results": [], "artworks":[]}
             
             query_emb = result.output['embeddings'][0]['embedding']
 
             # 2. 向量初筛 
-            # 注意：这里把 min_similarity 设得很低（0.01），防止初筛就把好苗子过滤掉了
-            artwork_results = self.search_similar_images(query_emb, "Artwork", top_k * 3, 0.01)
+            # 【关键修改】：这里传 label=None，配合你的 search_similar_images 开启四类节点同时检索
+            artwork_results = self.search_similar_images(query_emb, label=None, top_k=top_k * 3, min_similarity=0.01)
             
             if not artwork_results:
-                logger.warning("数据库未匹配到任何相似向量")
-                return {"success": True, "results": [], "artworks": [], "count": 0}
+                return {"success": True, "results": [], "artworks":[], "count": 0}
 
-            temp_list = []
+            temp_list =[]
             for res in artwork_results:
-                title = res.get('title', '未知')
                 raw_score = float(res.get('similarity', 0))
                 
-                # 获取该画作的完整知识
-                info = self._get_complete_artwork_info(title)
+                # 获取该画作/印章/题跋的完整知识
+                info = self._get_complete_artwork_info(res.get('node_id'))
                 
                 # --- 核心：知识权重提升 (Boosting) ---
-                # 保持0-1之间的数值
                 boosted_score = raw_score 
                 
-                # A. 朝代匹配加分（权重最高）
-                # 如果用户搜“宋”，画作朝代是“北宋”或“南宋”，加分
-                dynasty_keywords = ["宋", "唐", "元", "明", "清", "五代", "晋", "汉"]
+                # A. 朝代匹配加分
+                dynasty_keywords =["宋", "唐", "元", "明", "清", "五代", "晋", "汉"]
                 for dk in dynasty_keywords:
-                    if dk in text: # 用户搜了某个朝代
-                        actual_dynasty = info.get('dynasty', '')
-                        if dk in actual_dynasty:
-                            boosted_score += 0.3  # 匹配到朝代，大幅加分
-                            break # 匹配一个朝代就够了
+                    if dk in text and dk in info.get('dynasty', ''):
+                        boosted_score += 0.3  
+                        break 
 
                 # B. 风格/类型匹配加分
                 style_keywords = ["山水", "人物", "花鸟", "工笔", "写意"]
                 for sk in style_keywords:
                     if sk in text and sk in info.get('style', ''):
                         boosted_score += 0.1
+                
+                # C. 作者名称匹配加分（权重最高）
+                author = info.get('author', '')
+                if author and author in text:
+                    boosted_score += 0.5  # 作者匹配权重最高
 
-                temp_list.append({
-                    'title': title,
+                # 【关键修改】：动态组合字典，彻底抛弃写死的字段名
+                # 1. 基础必须字段
+                item_data = {
                     'similarity': boosted_score,
-                    'author': info.get('author'),
-                    'dynasty': info.get('dynasty'),
-                    'style': info.get('style'),
-                    'description': info.get('detail'),
-                    'image_url': self._get_artwork_image_url(title)
-                })
+                    'image_filename': res.get('image_filename', '未知'),
+                    # 调用你今晚新写的通用方法，自动生成 /api/get_image?path=xxx 格式
+                    'image_url': self._get_artwork_image_url(info.get('path') or res.get('path'))
+                }
+                
+                # 2. 动态合并：把 info 里的 title, author, label, content 等所有字段全塞进去！
+                item_data.update(info)
+
+                temp_list.append(item_data)
 
             # 3. 根据加成后的分值重新排序
             temp_list.sort(key=lambda x: x['similarity'], reverse=True)
 
             # 4. 截取前 top_k 个，并格式化分值
-            final_artworks = []
+            final_artworks =[]
             for item in temp_list[:top_k]:
-                # 确保分值在合理范围（不超过1.0，不低于0）
                 item['similarity'] = min(1.0, max(0.0, item['similarity']))
                 final_artworks.append(item)
 
-            # 5. 【关键】同时返回 results 和 artworks 两个键，确保前端能接到
             return {
                 "success": True, 
                 "results": final_artworks,
@@ -1368,5 +1406,6 @@ class ImageSearchService:
             }
 
         except Exception as e:
-            logger.error(f"search_by_text 异常: {e}", exc_info=True)
-            return {"success": False, "error": str(e), "results": [], "artworks": []}
+            import logging
+            logging.error(f"search_by_text 异常: {e}", exc_info=True)
+            return {"success": False, "error": str(e), "results":[], "artworks":[]}

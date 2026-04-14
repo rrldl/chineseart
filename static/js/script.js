@@ -303,8 +303,8 @@ document.addEventListener('DOMContentLoaded', () => {
             return false;
         }
 
-        if (file.size > 10 * 1024 * 1024) {
-            alert('图片大小不能超过10MB');
+        if (file.size > 50 * 1024 * 1024) {
+            alert('图片大小不能超过50MB');
             return false;
         }
 
@@ -738,12 +738,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 const similarity = artwork.similarity !== undefined ? 
                                  `相似度: ${(artwork.similarity * 100).toFixed(1)}%` : '';
                 
-                // 构造图片URL - 直接使用画作标题
+                // 定义 imageFilename 变量
+                const imageFilename = artwork.image_filename || artwork.properties?.image_filename || '';
+                
+                // 构造图片URL - 优先使用 image_url，如果没有则使用新的通用图片接口
                 let imageUrl = '';
-                if (title && title !== '未命名作品') {
-                    // 直接使用画作标题作为文件名（前端会编码特殊字符）
-                    const encodedTitle = encodeURIComponent(title);
-                    imageUrl = `/artwork_image/${encodedTitle}`;
+                if (artwork.image_url) {
+                    imageUrl = artwork.image_url;
+                } else if (artwork.image_path) {
+                    // 使用新的通用图片接口
+                    const encodedPath = encodeURIComponent(artwork.image_path);
+                    imageUrl = `/api/get_image?path=${encodedPath}`;
+                } else {
+                    // 作为后备，使用原来的方法
+                    if (imageFilename) {
+                        const encodedFilename = encodeURIComponent(imageFilename);
+                        imageUrl = `/artwork_image/${encodedFilename}`;
+                    } else if (title && title !== '未命名作品') {
+                        const encodedTitle = encodeURIComponent(title);
+                        imageUrl = `/artwork_image/${encodedTitle}`;
+                    }
                 }
 
                 html += `
@@ -751,7 +765,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="artwork-image-container">
                             ${imageUrl ? 
                                 `<img src="${imageUrl}" alt="${title}" class="artwork-image" 
-                                     onerror="handleImageError(this, '${title}')">` : 
+                                     onerror="handleImageError(this, '${title}', '${imageFilename || ''}')">` : 
                                 `<div class="artwork-placeholder">无图片</div>`}
                         </div>
                         <div class="artwork-info">
@@ -775,180 +789,156 @@ document.addEventListener('DOMContentLoaded', () => {
                     showArtworkDetail(sortedArtworks[index]);
                 });
             });
-        }
+        } // 结束 if/else 逻辑
 
         elements.modal.classList.remove('hidden');
-    }
+    } // ⬅️ 这是 showSearchResults 函数的结束大括号
 
-    // 图片错误处理函数（全局）
-    window.handleImageError = function(img, title) {
-        console.warn(`图片加载失败: ${title}`);
+    // ==========================================
+    // 全新的、极简的图片错误处理函数（全局）
+    // （彻底清除了 tryNextExtension 的旧轮询逻辑）
+    // ==========================================
+    window.handleImageError = function(img, title, imageFilename) {
+        console.warn(`[图片加载失败] 作品: ${title}, 文件: ${imageFilename || '未知'}`);
         
-        // 先尝试不同的扩展名
-        const extensions = ['.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG'];
-        const baseName = encodeURIComponent(title);
+        // 关键：必须把 onerror 置空，否则会导致死循环不断闪烁
+        img.onerror = null; 
         
-        let currentIndex = 0;
+        // 采用你之前写好的 SVG 本地渲染占位图，非常完美，不依赖任何外部图片文件！
+        img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="150" viewBox="0 0 200 150"><rect width="200" height="150" fill="#fcfcfc"/><text x="100" y="75" font-size="14" text-anchor="middle" fill="#999">图片暂未收录</text></svg>';
         
-        function tryNextExtension() {
-            if (currentIndex < extensions.length) {
-                const ext = extensions[currentIndex];
-                const newSrc = `/artwork_image/${baseName}${ext}`;
-                console.log(`尝试图片: ${newSrc}`);
-                
-                // 创建一个新的Image对象测试
-                const testImg = new Image();
-                testImg.onload = function() {
-                    img.src = newSrc;
-                    console.log(`成功加载图片: ${newSrc}`);
-                };
-                testImg.onerror = function() {
-                    currentIndex++;
-                    tryNextExtension();
-                };
-                testImg.src = newSrc;
-            } else {
-                // 所有扩展名都失败，显示占位符
-                img.onerror = null;
-                img.src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="150" viewBox="0 0 200 150"><rect width="200" height="150" fill="#f0f0f0"/><text x="100" y="75" font-size="14" text-anchor="middle" fill="#999">图片加载失败</text></svg>';
-            }
-        }
-        
-        tryNextExtension();
+        // 给占位图加个透明度和自适应，让视觉更协调
+        img.style.opacity = '0.8';
+        img.style.objectFit = 'contain';
     };
 
-    // 显示画作详情
+    //针对四种作品类型，进行不同的前端显示处理
     async function showArtworkDetail(artwork) {
-        const title = artwork.title || artwork.properties?.title || '未知作品';
-        const author = artwork.author || artwork.properties?.author || artwork.properties?.created_by || '未知作者';
-        const dynasty = artwork.dynasty || artwork.properties?.dynasty || '未知';
-        const style = artwork.style || artwork.properties?.style || artwork.medium || '未知';
-        const description = artwork.description || artwork.properties?.description || '暂无描述';
-        const medium = artwork.medium || artwork.properties?.medium || '';
-        const dimensions = artwork.dimensions || artwork.properties?.dimensions || '';
-        const collection = artwork.collection || artwork.properties?.collection || '';
+        // 1. 基础属性提取 (得益于后端已归一化，这里可以直接取值)
+        const label = artwork.label || 'Artwork';
+        const title = artwork.title || '未知作品';
+        const author = artwork.author || '未知作者';
+        const dynasty = artwork.dynasty || '未知';
+        const description = artwork.description || '暂无描述';
         const similarity = artwork.similarity !== undefined ? 
                          `相似度: ${(artwork.similarity * 100).toFixed(1)}%` : '';
+        
+        // 2. 准备分类标签样式
+        const labelConfigs = {
+            'Artwork': { name: '画作', color: '#8B6B40' },
+            'Seal': { name: '印章', color: '#C0392B' },
+            'Inscription': { name: '题跋', color: '#2E4053' },
+            'ArtistPortrait': { name: '画像', color: '#27AE60' }
+        };
+        const config = labelConfigs[label] || { name: '作品', color: '#999' };
 
-        // 尝试获取更多详细信息
-        let moreDetails = '';
-        try {
-            const response = await fetch(`/get_artwork_details/${encodeURIComponent(title)}`);
-            if (response.ok) {
-                const detailResult = await response.json();
-                if (detailResult && detailResult.a) {
-                    // 使用详细数据
-                    const detailedArtwork = detailResult.a;
-                    const detailedAuthor = detailResult.authors ? detailResult.authors.join(', ') : author;
-                    const detailedDynasty = detailResult.dynasties ? detailResult.dynasties.join(', ') : dynasty;
-                    
-                    // 构建详细描述
-                    moreDetails = `
-作品详情
-============
-标题: ${detailedArtwork.title || title}
-作者: ${detailedAuthor}
-朝代: ${detailedDynasty}
-风格: ${detailedArtwork.style || style}
-材质: ${detailedArtwork.medium || medium}
-尺寸: ${detailedArtwork.dimensions || dimensions}
-收藏: ${detailedArtwork.collection || collection}
-描述: ${detailedArtwork.description || description}
-${similarity}
-                    `;
-                }
-            }
-        } catch (e) {
-            console.error('获取详细详情失败:', e);
+        // 3. 构建动态属性 HTML (核心：根据 Label 差异化显示)
+        let dynamicProperties = `
+            <p><strong>作者/艺术家:</strong> ${author}</p>
+            <p><strong>朝代/时期:</strong> ${dynasty}</p>
+        `;
+
+        // 针对【印章】的特有显示 (微调这一小块)
+        if (label === 'Seal') {
+            dynamicProperties += `
+                <p><strong>印文内容:</strong> <span style="color:#C0392B; font-weight:bold; font-size:1.1em;">${artwork.seal_content || artwork.content || '未识别'}</span></p>
+                <p><strong>印章风格:</strong> ${artwork.style || '未知'}</p>
+            `;
         }
-
-        // 如果没有获取到详细信息，使用基本数据
-        if (!moreDetails) {
-            moreDetails = `
-作品详情
-============
-标题: ${title}
-作者: ${author}
-朝代: ${dynasty}
-风格: ${style}
-${medium ? `材质: ${medium}` : ''}
-${dimensions ? `尺寸: ${dimensions}` : ''}
-${collection ? `收藏: ${collection}` : ''}
-描述: ${description}
-${similarity}
+        // 针对【题跋】的特有显示
+        else if (label === 'Inscription') {
+            dynamicProperties += `
+                <p><strong>标签:</strong> ${artwork.tags || '书法/题跋'}</p>
+            `;
+        }
+        // 针对【画像】的特有显示
+        else if (label === 'ArtistPortrait') {
+            dynamicProperties += `
+                <p><strong>身份类别:</strong> ${artwork.category || '艺术家'}</p>
+            `;
+        }
+        // 针对【普通画作】的特有显示
+        else {
+            dynamicProperties += `
+                <p><strong>艺术风格:</strong> ${artwork.style || '未知'}</p>
             `;
         }
 
-        // 创建一个自定义的模态框来显示详情
+        // 4. 创建模态框容器
         const detailModal = document.createElement('div');
         detailModal.className = 'modal';
         detailModal.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 1000;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7); display: flex; align-items: center;
+            justify-content: center; z-index: 1000; backdrop-filter: blur(5px);
         `;
+
+        // 5. 生成弹窗 HTML 内容
+        // 注意图片：优先使用后端生成的 image_url (它已经走过了绝对路径转换)
+        const imageUrl = artwork.image_url || '/static/default_art.png';
 
         const detailContent = document.createElement('div');
         detailContent.className = 'modal-content';
         detailContent.style.cssText = `
-            background: white;
-            padding: 30px;
-            border-radius: 10px;
-            max-width: 600px;
-            max-height: 80vh;
-            overflow-y: auto;
-            position: relative;
-            box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+            background: #fdfaf5; padding: 30px; border-radius: 12px;
+            max-width: 700px; width: 90%; max-height: 85vh; overflow-y: auto;
+            position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            border: 1px solid #d3c4a8;
         `;
 
-        // 添加图片
-        let imageHtml = '';
-        let imageUrl = '';
-        if (artwork.image_url) {
-            imageUrl = artwork.image_url;
-        } else if (title && title !== '未知作品') {
-            const encodedTitle = encodeURIComponent(title);
-            imageUrl = `/artwork_image/${encodedTitle}`;
-        }
-        
-        if (imageUrl) {
-            imageHtml = `<img src="${imageUrl}" alt="${title}" style="max-width:100%;margin-bottom:20px;border-radius:5px;" onerror="this.style.display='none'">`;
-        }
-
         detailContent.innerHTML = `
-            <button class="close-detail" style="position:absolute;top:10px;right:10px;background:none;border:none;font-size:20px;cursor:pointer;">×</button>
-            <h3 style="color:#333;margin-bottom:20px;border-bottom:2px solid #8B6B40;padding-bottom:10px;">${title}</h3>
-            ${imageHtml}
-            <div style="color:#666;line-height:1.6;">
-                <p><strong>作者:</strong> ${author}</p>
-                <p><strong>朝代:</strong> ${dynasty}</p>
-                <p><strong>风格:</strong> ${style}</p>
-                ${medium ? `<p><strong>材质:</strong> ${medium}</p>` : ''}
-                ${dimensions ? `<p><strong>尺寸:</strong> ${dimensions}</p>` : ''}
-                ${collection ? `<p><strong>收藏:</strong> ${collection}</p>` : ''}
-                ${similarity ? `<p><strong>${similarity}</strong></p>` : ''}
-                <p><strong>描述:</strong> ${description}</p>
+            <button class="close-detail" style="position:absolute;top:15px;right:15px;background:none;border:none;font-size:28px;cursor:pointer;color:#999;">&times;</button>
+            
+            <div style="display:inline-block; background:${config.color}; color:white; padding:2px 10px; border-radius:4px; font-size:12px; margin-bottom:10px;">
+                ${config.name}
+            </div>
+
+            <h3 style="color:#333; margin:0 0 20px 0; border-bottom:2px solid ${config.color}; padding-bottom:10px; font-family: 'Noto Serif SC', serif;">
+                ${title}
+            </h3>
+            
+            <div style="text-align:center; background:#eee; border-radius:8px; padding:10px; margin-bottom:20px;">
+                <img src="${imageUrl}" alt="${title}" style="max-width:100%; max-height:400px; border-radius:4px; box-shadow:0 4px 8px rgba(0,0,0,0.2);">
+            </div>
+
+            <div style="color:#444; line-height:1.8; font-size:15px;">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:20px; background:#f5f0e6; padding:15px; border-radius:8px;">
+                    ${dynamicProperties}
+                    ${similarity ? `<p style="color:${config.color}; grid-column: span 2;"><strong>${similarity}</strong></p>` : ''}
+                </div>
+                
+                <p><strong>作品描述:</strong></p>
+                <div style="text-indent: 2em; color:#555; text-align:justify; background:white; padding:15px; border-radius:8px; border:1px inset #eee;">
+                    ${description}
+                </div>
             </div>
         `;
 
         detailModal.appendChild(detailContent);
         document.body.appendChild(detailModal);
 
-        // 添加关闭事件
-        detailModal.addEventListener('click', (e) => {
-            if (e.target === detailModal || e.target.classList.contains('close-detail')) {
+        // 6. 关闭事件逻辑
+        const closeModal = () => {
+            if (document.body.contains(detailModal)) {
                 document.body.removeChild(detailModal);
             }
-        });
-    }
+        };
 
+        detailModal.addEventListener('click', (e) => {
+            if (e.target === detailModal || e.target.classList.contains('close-detail')) {
+                closeModal();
+            }
+        });
+
+        // 支持 ESC 键关闭
+        const escListener = (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+                document.removeEventListener('keydown', escListener);
+            }
+        };
+        document.addEventListener('keydown', escListener);
+}
     // 自定义艺术报告格式化工具
     function formatArtReport(text) {
         if (!text) return '';

@@ -6,8 +6,10 @@ import threading
 import queue  # For thread-safe communication
 import logging
 from datetime import datetime
+import urllib.parse
 from functools import wraps
-from flask import Flask, render_template, request, Response, stream_with_context, jsonify, send_from_directory
+from flask import Flask, render_template, request, Response, stream_with_context, jsonify, send_from_directory, send_file, abort
+import mimetypes
 import q_a  # Assuming q_a.py is in the same directory or accessible via PYTHONPATH
 from rich.console import Console
 from ansi2html import Ansi2HTMLConverter  # For converting rich's ANSI output to HTML
@@ -37,6 +39,8 @@ load_dotenv()
 
 # --- Flask App Setup ---
 app = Flask(__name__)
+# 允许上传最大 50MB 的文件
+app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 
 # 导入图像搜索服务
 # 初始化图像搜索服务
@@ -601,29 +605,53 @@ def search_by_text():
         return jsonify({"error": f"搜索失败: {str(e)}"}), 500
 
 
-@app.route('/get_artwork_details/<title>', methods=['GET'])
-def get_artwork_details(title):
+@app.route('/get_artwork_details', methods=['GET'])
+def get_artwork_details():
     """获取画作详细信息"""
     try:
-        # 解码URL编码的标题
+        # 从查询参数获取标题和文件名
         import urllib.parse
-        title = urllib.parse.unquote(title)
+        title = urllib.parse.unquote(request.args.get('title', ''))
+        image_filename = urllib.parse.unquote(request.args.get('image_filename', ''))
 
-        query = """
-        MATCH (a:Artwork {title: $title})
-        OPTIONAL MATCH (a)-[:CREATED_BY]->(artist:Artist)
-        OPTIONAL MATCH (a)-[:PART_OF]->(dynasty:Dynasty)
-        OPTIONAL MATCH (a)-[:HAS_STYLE]->(style:Style)
-        OPTIONAL MATCH (a)-[:HAS_SEAL]->(seal:Seal)
-        OPTIONAL MATCH (a)-[:HAS_INSCRIPTION]->(ins:Inscription)
-        RETURN a, 
-               collect(DISTINCT artist.name) as authors,
-               collect(DISTINCT dynasty.name) as dynasties,
-               collect(DISTINCT style.name) as styles,
-               collect(DISTINCT {text: seal.text, owner: seal.owner, type: seal.type}) as seals,
-               collect(DISTINCT {text: ins.text, author: ins.author, type: ins.type}) as inscriptions
-        """
-        result = image_search_service.graph.run(query, title=title).data()
+        if not title:
+            return jsonify({"error": "缺少标题参数"}), 400
+
+        if image_filename:
+            # 复合查询：标题 + 文件名，确保唯一性
+            query = """
+            MATCH (a:Artwork)
+            WHERE a.title = $title AND a.image_filename = $filename
+            OPTIONAL MATCH (a)-[:CREATED_BY]->(artist:Artist)
+            OPTIONAL MATCH (a)-[:PART_OF]->(dynasty:Dynasty)
+            OPTIONAL MATCH (a)-[:HAS_STYLE]->(style:Style)
+            OPTIONAL MATCH (a)-[:HAS_SEAL]->(seal:Seal)
+            OPTIONAL MATCH (a)-[:HAS_INSCRIPTION]->(ins:Inscription)
+            RETURN a, 
+                   collect(DISTINCT artist.name) as authors,
+                   collect(DISTINCT dynasty.name) as dynasties,
+                   collect(DISTINCT style.name) as styles,
+                   collect(DISTINCT {text: seal.text, owner: seal.owner, type: seal.type}) as seals,
+                   collect(DISTINCT {text: ins.text, author: ins.author, type: ins.type}) as inscriptions
+            """
+            result = image_search_service.graph.run(query, title=title, filename=image_filename).data()
+        else:
+            # 只使用标题查询
+            query = """
+            MATCH (a:Artwork {title: $title})
+            OPTIONAL MATCH (a)-[:CREATED_BY]->(artist:Artist)
+            OPTIONAL MATCH (a)-[:PART_OF]->(dynasty:Dynasty)
+            OPTIONAL MATCH (a)-[:HAS_STYLE]->(style:Style)
+            OPTIONAL MATCH (a)-[:HAS_SEAL]->(seal:Seal)
+            OPTIONAL MATCH (a)-[:HAS_INSCRIPTION]->(ins:Inscription)
+            RETURN a, 
+                   collect(DISTINCT artist.name) as authors,
+                   collect(DISTINCT dynasty.name) as dynasties,
+                   collect(DISTINCT style.name) as styles,
+                   collect(DISTINCT {text: seal.text, owner: seal.owner, type: seal.type}) as seals,
+                   collect(DISTINCT {text: ins.text, author: ins.author, type: ins.type}) as inscriptions
+            """
+            result = image_search_service.graph.run(query, title=title).data()
 
         if result:
             artwork_data = result[0]
@@ -637,40 +665,67 @@ def get_artwork_details(title):
         return jsonify({"error": f"获取详情失败: {str(e)}"}), 500
 
 
-# 只有一个 artwork_image 路由定义 - 这是正确的版本
+# 定义两个确切的图片存储路径
+DIR_BMP = r"F:\Chineseart\artworks"                 # 112张 BMP
+DIR_JPG = r"F:\Chineseart\artwork_images\artworks"  # 217张 JPG
+
 @app.route('/artwork_image/<filename>')
-def get_artwork_image(filename):
-    """获取画作图片 - 直接从artwork_images目录提供"""
+def serve_artwork(filename):
+    """兼容旧前端的按文件名获取图片接口（全门类通用）"""
+    print(f"DEBUG: 触发旧图片接口兜底，请求文件名: {filename}")
+
     try:
-        import urllib.parse
-        # 解码文件名
-        filename_decoded = urllib.parse.unquote(filename)
-
-        # 去除扩展名，获取画作标题
-        base_name = os.path.splitext(filename_decoded)[0]
-
-        # 尝试不同的图片扩展名
-        extensions = ['.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG']
-
-        # 直接在artwork_images/artworks目录查找
-        image_dir = "artwork_images/artworks"
-
-        for ext in extensions:
-            image_path = os.path.join(image_dir, base_name + ext)
-            if os.path.exists(image_path):
-                return send_from_directory(image_dir, base_name + ext)
-
-        # 如果找不到，尝试查找原始文件名（带扩展名的）
-        if os.path.exists(os.path.join(image_dir, filename_decoded)):
-            return send_from_directory(image_dir, filename_decoded)
-
-        logger.warning(f"找不到画作图片: {filename_decoded}")
-        # 返回404图片或占位符
-        return jsonify({"error": "图片未找到"}), 404
-
+        from py2neo import Graph
+        from flask import send_file, abort
+        import os
+        
+        graph = Graph(os.getenv("NEO4J_URI"), auth=(os.getenv("NEO4J_USER"), os.getenv("NEO4J_PASSWORD")))
+        
+        # 全门类查询，查出任意拥有此文件名的节点的 path
+        query = """
+        MATCH (n) 
+        WHERE n.image_filename = $f 
+          AND (n:Artwork OR n:Seal OR n:Inscription OR n:ArtistPortrait)
+        RETURN n.path AS img_path LIMIT 1
+        """
+        res = graph.run(query, f=filename).data()
+        
+        # 如果数据库有记录，并且物理磁盘上真的有这个文件
+        if res and res[0].get('img_path') and os.path.exists(res[0]['img_path']):
+            full_path = res[0]['img_path']
+            
+            # 保留一个小优化：判断如果是 bmp 强制指定类型，防止浏览器下不出来
+            if full_path.lower().endswith('.bmp'):
+                return send_file(full_path, mimetype='image/bmp')
+            else:
+                return send_file(full_path)
+                
     except Exception as e:
-        logger.error(f"获取图片失败: {e}")
-        return jsonify({"error": "获取图片失败"}), 500
+        print(f"DEBUG: 兜底查询数据库异常: {e}")
+
+    print(f"ERROR: 找不到图片文件记录或磁盘文件已丢失: {filename}")
+    from flask import abort
+    return abort(404)
+
+@app.route('/api/get_image')
+def serve_image():
+    """通用图片读取接口，通过绝对路径获取图片"""
+    # 1. 获取 URL 里的 path 参数
+    encoded_path = request.args.get('path')
+    if not encoded_path:
+        return abort(400, "Missing path parameter")
+    
+    # 2. 解码路径 (把 %xx 还原成真实的 F:\Chineseart\...)
+    img_path = urllib.parse.unquote(encoded_path)
+    
+    # 3. 检查文件是否存在
+    if os.path.exists(img_path):
+        # 4. 直接把磁盘上的文件发给浏览器
+        return send_file(img_path)
+    else:
+        # 方便调试：如果图出不来，控制台会打印具体哪个路径错了
+        print(f"❌ 图片文件不存在: {img_path}")
+        return abort(404)
 
 
 # 启用新API路由

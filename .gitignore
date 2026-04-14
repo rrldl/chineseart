@@ -67,3 +67,12 @@ htmlcov/
 desktop.ini
 
 weights/FastSAM_X.pt
+
+notes/
+artworks/
+artists_pictures/
+signature_pictures/
+inscriptions/
+
+# --- 忽略数据索引文件 ---
+*.npy
