@@ -30,6 +30,32 @@ import base64  # 用于将图片编码发送给云端
 from langchain_community.chat_models import ChatTongyi
 from langchain_core.messages import HumanMessage
 
+# 路径转换函数
+def get_absolute_path(path_from_db):
+    """
+    将数据库中的绝对路径转换为当前环境下的绝对路径
+    """
+    if not path_from_db:
+        return None
+        
+    # 从 .env 获取配置，如果没有配置则默认用 F 盘路径
+    db_prefix = os.getenv("DB_ROOT_PREFIX", "F:/Chineseart").replace("\\", "/")
+    local_root = os.getenv("LOCAL_PROJECT_ROOT", "F:/Chineseart").replace("\\", "/")
+
+    # 1. 统一斜杠格式
+    standard_path = path_from_db.replace("\\", "/")
+    
+    # 2. 核心替换：把数据库存的前缀（F:/Chineseart）换成当前的根目录
+    if standard_path.startswith(db_prefix):
+        # 只替换一次，得到当前电脑上的真实路径
+        final_path = standard_path.replace(db_prefix, local_root, 1)
+    else:
+        # 如果路径里没包含前缀，说明存的是相对路径，直接拼接
+        final_path = os.path.join(local_root, path_from_db)
+        
+    # 3. 转回系统识别的路径（Windows下会转回反斜杠）
+    return os.path.abspath(final_path)
+
 # 设置日志
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
@@ -679,29 +705,35 @@ def serve_artwork(filename):
         from flask import send_file, abort
         import os
         
+        # 1. 连接数据库
         graph = Graph(os.getenv("NEO4J_URI"), auth=(os.getenv("NEO4J_USER"), os.getenv("NEO4J_PASSWORD")))
         
-        # 全门类查询，查出任意拥有此文件名的节点的 path
+        # 2. 查询数据库拿 path
         query = """
         MATCH (n) 
         WHERE n.image_filename = $f 
           AND (n:Artwork OR n:Seal OR n:Inscription OR n:ArtistPortrait)
-        RETURN n.path AS img_path LIMIT 1
+        RETURN n.path AS db_path LIMIT 1
         """
         res = graph.run(query, f=filename).data()
         
-        # 如果数据库有记录，并且物理磁盘上真的有这个文件
-        if res and res[0].get('img_path') and os.path.exists(res[0]['img_path']):
-            full_path = res[0]['img_path']
+        if res and res[0].get('db_path'):
+            # --- 关键修改点：转换路径 ---
+            db_path = res[0]['db_path']
+            full_path = get_absolute_path(db_path)
             
-            # 保留一个小优化：判断如果是 bmp 强制指定类型，防止浏览器下不出来
-            if full_path.lower().endswith('.bmp'):
-                return send_file(full_path, mimetype='image/bmp')
+            # 3. 检查文件是否真的存在
+            if full_path and os.path.exists(full_path):
+                # 针对 bmp 的小优化保持不变
+                if full_path.lower().endswith('.bmp'):
+                    return send_file(full_path, mimetype='image/bmp')
+                else:
+                    return send_file(full_path)
             else:
-                return send_file(full_path)
+                print(f"ERROR: 磁盘上找不到文件: {full_path}")
                 
     except Exception as e:
-        print(f"DEBUG: 兜底查询数据库异常: {e}")
+        print(f"DEBUG: 接口异常: {e}")
 
     print(f"ERROR: 找不到图片文件记录或磁盘文件已丢失: {filename}")
     from flask import abort
@@ -715,16 +747,19 @@ def serve_image():
     if not encoded_path:
         return abort(400, "Missing path parameter")
     
-    # 2. 解码路径 (把 %xx 还原成真实的 F:\Chineseart\...)
+    # 2. 解码路径 (把 %xx 还原成真实的路径)
     img_path = urllib.parse.unquote(encoded_path)
     
-    # 3. 检查文件是否存在
-    if os.path.exists(img_path):
-        # 4. 直接把磁盘上的文件发给浏览器
-        return send_file(img_path)
+    # 3. 转换路径
+    full_path = get_absolute_path(img_path)
+    
+    # 4. 检查文件是否存在
+    if full_path and os.path.exists(full_path):
+        # 5. 直接把磁盘上的文件发给浏览器
+        return send_file(full_path)
     else:
         # 方便调试：如果图出不来，控制台会打印具体哪个路径错了
-        print(f"❌ 图片文件不存在: {img_path}")
+        print(f"❌ 图片文件不存在: {full_path}")
         return abort(404)
 
 
