@@ -1,7 +1,7 @@
 import os
 import json
 from flask import Flask, request, jsonify, send_from_directory
-from image_search_app import ImageSearchService
+from image_search_app_zhao import ImageSearchService
 from dotenv import load_dotenv
 
 # 加载环境变量

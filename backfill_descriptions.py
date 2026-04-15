@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 # 217张图的描述来自 JSON 文件，112张图的描述来自 Qwen-VL-Plus
 # --- 1. 初始化 ---
 load_dotenv()
-dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
+dashscope.api_key = os.getenv("sk-18e0af55804c4829ae1bea3fb95c4aa9")
 
 graph = Graph(os.getenv("NEO4J_URI", "bolt://localhost:7687"), 
               auth=(os.getenv("NEO4J_USER", "neo4j"), os.getenv("NEO4J_PASSWORD")))

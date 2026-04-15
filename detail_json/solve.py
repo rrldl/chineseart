@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 
 # --- 1. 环境配置 ---
 load_dotenv()
-dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
+dashscope.api_key = os.getenv("sk-18e0af55804c4829ae1bea3fb95c4aa9")
 graph = Graph(os.getenv("NEO4J_URI"), auth=(os.getenv("NEO4J_USER"), os.getenv("NEO4J_PASSWORD")))
 
 def get_ai_description_fixed(image_path, node_name, artist, dynasty):

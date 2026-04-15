@@ -12,6 +12,8 @@ import json
 import threading
 import logging
 
+dashscope.api_key = "sk-18e0af55804c4829ae1bea3fb95c4aa9"
+
 # 屏蔽 dashscope 库打印庞大的请求体
 logging.getLogger("dashscope").setLevel(logging.WARNING)
 # 屏蔽底层网络库的请求日志

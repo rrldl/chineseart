@@ -8,9 +8,10 @@ from dotenv import load_dotenv
 from PIL import Image
 import tempfile
 
+dashscope.api_key = "sk-18e0af55804c4829ae1bea3fb95c4aa9"
 # --- 1. 初始化配置 ---
 load_dotenv()
-dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
+dashscope.api_key = os.getenv("sk-18e0af55804c4829ae1bea3fb95c4aa9")
 graph = Graph(os.getenv("NEO4J_URI"), auth=(os.getenv("NEO4J_USER"), os.getenv("NEO4J_PASSWORD")))
 
 def get_safe_image(image_path):
@@ -113,7 +114,8 @@ def run_master_sync():
                     input=[
                         {'image': f"file://{os.path.abspath(processed_path)}"},
                         {'text': text_input[:500]} # 限制文本长度防止超限
-                    ]
+                    ],
+                    api_key="sk-18e0af55804c4829ae1bea3fb95c4aa9"
                 )
                 if res.status_code == 200:
                     embedding = res.output['embeddings'][0]['embedding']

@@ -147,7 +147,7 @@ class Neo4jRAGSystem:
                     
                     # 初始化云端模型
                     self.llm = ChatTongyi(
-                        dashscope_api_key=api_key, 
+                        dashscope_api_key="sk-18e0af55804c4829ae1bea3fb95c4aa9", 
                         model_name=ali_model,
                         streaming=False
                     )
