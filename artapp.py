@@ -31,7 +31,10 @@ import base64  # 用于将图片编码发送给云端
 from langchain_community.chat_models import ChatTongyi
 from langchain_core.messages import HumanMessage
 
-dashscope.api_key = "sk-18e0af55804c4829ae1bea3fb95c4aa9"
+load_dotenv()
+
+dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
+print("KEY =", os.getenv("DASHSCOPE_API_KEY"))
 
 # 路径转换函数
 def get_absolute_path(path_from_db):
@@ -42,8 +45,7 @@ def get_absolute_path(path_from_db):
         return None
         
     # 从 .env 获取配置，如果没有配置则默认用 F 盘路径
-    db_prefix = os.getenv("DB_ROOT_PREFIX", "D:\shuhua_picture\work").replace("\\", "/")
-    local_root = os.getenv("LOCAL_PROJECT_ROOT", "D:\shuhua_picture\work").replace("\\", "/")
+    local_root = os.getenv("LOCAL_PROJECT_ROOT")
 
     # 1. 统一斜杠格式
     standard_path = path_from_db.replace("\\", "/")
@@ -148,7 +150,7 @@ def describe_image_with_qwen(image_path):
             return False, "缺少 DASHSCOPE_API_KEY"
 
         # 初始化视觉模型
-        llm = ChatTongyi(model_name="qwen-vl-plus", dashscope_api_key="sk-18e0af55804c4829ae1bea3fb95c4aa9")
+        llm = ChatTongyi(model_name="qwen-vl-plus", dashscope_api_key="DASHSCOPE_API_KEY")
 
         # 将本地图片转换为 Base64 编码
         with open(image_path, "rb") as f:
@@ -363,7 +365,7 @@ def ask_question():
 
                 # 从环境变量读取配置
                 llm_mode = os.getenv("LL_MODE", "cloud") # 获取模式，默认cloud
-                api_key = os.getenv("sk-18e0af55804c4829ae1bea3fb95c4aa9") # 获取阿里云Key
+                dashscope_api_key = os.getenv("DASHSCOPE_API_KEY") # 获取阿里云Key
                 ali_model = os.getenv("ALI_MODEL0", "qwen-plus") # 获取云端模型名
 
                 #  实例化问答系统
@@ -374,7 +376,7 @@ def ask_question():
                     
                     # --- 注入云端/本地切换参数 ---
                     llm_mode=llm_mode,
-                    dashscope_api_key="sk-18e0af55804c4829ae1bea3fb95c4aa9",
+                    dashscope_api_key=dashscope_api_key,
                     ali_model=ali_model,
                     
                     # --- 注入本地备选参数 ---
@@ -742,7 +744,7 @@ def serve_artwork(filename):
     from flask import abort
     return abort(404)
 
-IMAGE_BASE_DIR = r"D:\shuhua_picture\work"
+IMAGE_BASE_DIR = os.getenv("LOCAL_PROJECT_ROOT")
 
 @app.route('/api/get_image')
 def get_image():
@@ -755,13 +757,9 @@ def get_image():
         # 1. 解码
         image_rel_path = urllib.parse.unquote(image_rel_path)
         
-        # 2. 🌟 核心：构造绝对路径
-        # 确认 IMAGE_BASE_DIR 是否定义正确，建议直接写死测试：
-        # IMAGE_BASE_DIR = r"D:\shuhua_picture\work"
         full_path = os.path.normpath(os.path.join(IMAGE_BASE_DIR, image_rel_path))
 
         if os.path.exists(full_path):
-            # 获取文件夹名和文件名，分开传给 send_from_directory 更稳妥
             directory = os.path.dirname(full_path)
             filename = os.path.basename(full_path)
             return send_from_directory(directory, filename)

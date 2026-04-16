@@ -65,7 +65,7 @@ def get_ground_truth(title):
     """
     import dashscope
     from dashscope import Generation
-    dashscope.api_key = os.getenv("sk-18e0af55804c4829ae1bea3fb95c4aa9")
+    dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
     
     print(f"   [知识锚定] 正在检索《{title}》的历史真实背景...")
     prompt = f"中国名画《{title}》公认的作者是谁？属于哪个朝代？艺术流派是什么？请严谨回答，仅以JSON格式返回，禁止任何废话：{{'author': '...', 'dynasty': '...', 'style': '...'}}"

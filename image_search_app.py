@@ -104,11 +104,11 @@ class ImageSearchService:
         self.neo4j_user = "neo4j"
         self.neo4j_password = "12345678"
 
-        self.image_root_dir = r"D:\shuhua_picture\work"
+        self.image_root_dir = os.getenv("LOCAL_PROJECT_ROOT")
 
         # 2. 通义千问 API 配置 (替换成你的真实 KEY)
-        dashscope.api_key = os.getenv("DASHSCOPE_API_KEY", "sk-18e0af55804c4829ae1bea3fb95c4aa9")
-        self.api_key = getattr(dashscope, 'api_key', 'sk-18e0af55804c4829ae1bea3fb95c4aa9')
+        dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
+        self.api_key = getattr(dashscope, 'api_key', os.getenv("DASHSCOPE_API_KEY"))
         # 3. FAISS 向量库路径 (就是上一步 build_index.py 跑出来的两个文件)
         self.index_path = index_path
         self.paths_path = paths_path
@@ -262,12 +262,12 @@ class ImageSearchService:
             b64_data = base64.b64encode(buffer.getvalue()).decode("utf-8")
             image_data_url = f"data:image/jpeg;base64,{b64_data}"
 
-            api_key= "sk-18e0af55804c4829ae1bea3fb95c4aa9"
+            api_key = os.getenv("DASHSCOPE_API_KEY")
 
             response = MultiModalEmbedding.call(
                 model="multimodal-embedding-v1",
                 input=[{"image": image_data_url}],
-                api_key="sk-18e0af55804c4829ae1bea3fb95c4aa9"
+                api_key=api_key
             )
 
             if response.status_code == 200:
@@ -293,7 +293,7 @@ class ImageSearchService:
             response = MultiModalEmbedding.call(
                 model="multimodal-embedding-v1",
                 input=[{"text": rich_prompt}],
-                api_key="sk-18e0af55804c4829ae1bea3fb95c4aa9"
+                api_key=os.getenv("DASHSCOPE_API_KEY")
             )
             
             if response.status_code == 200:

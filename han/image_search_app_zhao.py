@@ -9,7 +9,7 @@ from dashscope import MultiModalEmbedding
 
 import urllib.parse
 
-dashscope.api_key = "sk-18e0af55804c4829ae1bea3fb95c4aa9"
+dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
 # 尝试导入必要的模块
 try:
     import os
@@ -166,7 +166,7 @@ class ImageSearchService:
         try:
             import dashscope
             from dashscope import MultiModalEmbedding
-            dashscope.api_key = os.getenv("sk-18e0af55804c4829ae1bea3fb95c4aa9")
+            dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
 
             abs_path = os.path.abspath(image_path)
             
@@ -206,7 +206,7 @@ class ImageSearchService:
             result = MultiModalEmbedding.call(
                 model='multimodal-embedding-v1',
                 input=[{'image': f"file://{os.path.abspath(final_upload_path)}"}],
-                api_key="sk-18e0af55804c4829ae1bea3fb95c4aa9"
+                api_key=os.getenv("DASHSCOPE_API_KEY")
             )
 
             # 3. 立即清理临时文件
@@ -430,7 +430,7 @@ class ImageSearchService:
             res = MultiModalEmbedding.call(
                 model='multimodal-embedding-v1',
                 input=[{'text': text}],
-                api_key="sk-18e0af55804c4829ae1bea3fb95c4aa9"
+                api_key=os.getenv("DASHSCOPE_API_KEY")
             )
             
             if res.status_code == 200:
@@ -1332,13 +1332,13 @@ class ImageSearchService:
             from dashscope import MultiModalEmbedding
             import os
             
-            dashscope.api_key = os.getenv("sk-18e0af55804c4829ae1bea3fb95c4aa9")
+            dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
 
             # 1. 语义特征提取
             result = MultiModalEmbedding.call(
                 model='multimodal-embedding-v1',
                 input=[{'text': text}],
-                api_key="sk-18e0af55804c4829ae1bea3fb95c4aa9"
+                api_key=os.getenv("DASHSCOPE_API_KEY")
             )
             if result.status_code != 200:
                 return {"success": False, "error": "特征提取失败", "results": [], "artworks":[]}

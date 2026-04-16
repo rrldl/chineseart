@@ -9,7 +9,7 @@ from dashscope import MultiModalConversation, Generation
 # --- 1. 核心初始化 ---
 # 必须先执行 load_dotenv() 才能读取到 .env 里的内容
 load_dotenv()
-dashscope.api_key = os.getenv("sk-18e0af55804c4829ae1bea3fb95c4aa9")
+dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
 
 # 检查 Key 是否加载成功
 if not dashscope.api_key:
