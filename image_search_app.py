@@ -517,156 +517,7 @@ class ImageSearchService:
         enhanced_texts = enhanced_texts[:15]
         print(f"✓ 文本增强完成，生成 {len(enhanced_texts)} 个增强文本")
         return enhanced_texts
-    """
-    def _extract_text_embedding_without_cache(self, text):
-        提取文本特征向量（无缓存版本）
-        try:
-            # 文本增强
-            enhanced_texts = self.enhance_text(text)
-            
-            # 提取多个增强文本的特征并平均
-            embeddings = []
-            
-            # 处理增强文本
-            for enhanced_text in enhanced_texts:
-                # 处理长文本 - 截断到模型最大长度
-                try:
-                    # 尝试处理文本
-                    inputs = self.processor(text=[enhanced_text], return_tensors="pt", padding=True, truncation=True, max_length=77)
-                    
-                    inputs = {k: v.to(self.device) for k, v in inputs.items()}
-                    
-                    with torch.no_grad():
-                        outputs = self.model.get_text_features(**inputs)
-                        
-                        # 1. 核心修复：把真正的特征张量(Tensor)从返回的对象里剥离出来
-                        if hasattr(outputs, 'text_embeds'):
-                            text_features = outputs.text_embeds
-                        elif hasattr(outputs, 'pooler_output'):
-                            text_features = outputs.pooler_output
-                        elif isinstance(outputs, torch.Tensor):
-                            text_features = outputs
-                        else:
-                            text_features = outputs[0]
-                            
-                        # 2. 安全地进行归一化计算
-                        text_features = F.normalize(text_features, p=2, dim=-1)
-                        
-                        # 3. 存入列表 (跟原来保持一致)
-                        embeddings.append(text_features.cpu().numpy()[0])
-                except Exception:
-                    # 尝试更激进的截断
-                    try:
-                        truncated_text = enhanced_text[:30] + "..."
-                        inputs = self.processor(text=[truncated_text], return_tensors="pt", padding=True, truncation=True, max_length=77)
-                        inputs = {k: v.to(self.device) for k, v in inputs.items()}
-                        
-                        with torch.no_grad():
-                            outputs = self.model.get_text_features(**inputs)
-                            # 万能提取法
-                            if hasattr(outputs, 'text_embeds'):
-                                text_features = outputs.text_embeds
-                            elif hasattr(outputs, 'pooler_output'):
-                                text_features = outputs.pooler_output
-                            elif isinstance(outputs, torch.Tensor):
-                                text_features = outputs
-                            else:
-                                text_features = outputs[0]
-                                
-                            # 安全归一化
-                            text_features = F.normalize(text_features, p=2, dim=-1)
-                            # 保持原本的结尾不变
-                            embeddings.append(text_features.cpu().numpy()[0])
-                    except Exception:
-                        continue  # 跳过这个增强文本
-            
-            # 平均多个嵌入向量
-            if embeddings:
-                # 加权平均 - 给原始文本更高的权重
-                weights = []
-                for emb_text in enhanced_texts:
-                    if emb_text == text:
-                        weights.append(2.0)
-                    else:
-                        weights.append(1.0)
-                weights = np.array(weights) / sum(weights)
-                avg_embedding = np.average(embeddings, axis=0, weights=weights)
-                # 重新归一化
-                avg_embedding = avg_embedding / np.linalg.norm(avg_embedding)
-                return avg_embedding
-            else:
-                # 如果增强失败，使用原始文本
-                # 处理长文本
-                try:
-                    inputs = self.processor(text=[text], return_tensors="pt", padding=True, truncation=True, max_length=77)
-                    inputs = {k: v.to(self.device) for k, v in inputs.items()}
-                    
-                    with torch.no_grad():
-                        outputs = self.model.get_text_features(**inputs)
-                        # 万能提取法
-                        if hasattr(outputs, 'text_embeds'):
-                            text_features = outputs.text_embeds
-                        elif hasattr(outputs, 'pooler_output'):
-                            text_features = outputs.pooler_output
-                        elif isinstance(outputs, torch.Tensor):
-                            text_features = outputs
-                        else:
-                            text_features = outputs[0]
-                            
-                        # 安全归一化
-                        text_features = F.normalize(text_features, p=2, dim=-1)
-                        # 保持原本的结尾不变
-                        features_np = text_features.cpu().numpy()[0]
-                        
-                    return features_np
-                except Exception:
-                    # 尝试更激进的截断
-                    truncated_text = text[:30] + "..."
-                    inputs = self.processor(text=[truncated_text], return_tensors="pt", padding=True, truncation=True, max_length=77)
-                    inputs = {k: v.to(self.device) for k, v in inputs.items()}
-                    
-                    with torch.no_grad():
-                        outputs = self.model.get_text_features(**inputs)
-                        # 万能提取法
-                        if hasattr(outputs, 'text_embeds'):
-                            text_features = outputs.text_embeds
-                        elif hasattr(outputs, 'pooler_output'):
-                            text_features = outputs.pooler_output
-                        elif isinstance(outputs, torch.Tensor):
-                            text_features = outputs
-                        else:
-                            text_features = outputs[0]
-                            
-                        # 安全归一化
-                        text_features = F.normalize(text_features, p=2, dim=-1)
-                        # 保持原本的结尾不变
-                        features_np = text_features.cpu().numpy()[0]
-                        
-                    return features_np
-        except Exception as e:
-            error_msg = f"文本特征提取失败: {e}"
-            logger.error(error_msg)
-            return None
-    """
-    """def extract_text_embedding(self, text):
-        提取文本特征向量（带缓存）
-        # 确保模型已加载
-        self._ensure_model_loaded()
-        
-        # 检查缓存
-        if text in self.text_embedding_cache:
-            print(f"✓ 从缓存中获取文本特征")
-            return self.text_embedding_cache[text]
-        
-        # 提取特征
-        embedding = self._extract_text_embedding_without_cache(text)
-        
-        # 存入缓存
-        if embedding is not None:
-            self._manage_cache(self.text_embedding_cache, text, embedding)
-        
-        return embedding
-    """
+
     def calculate_weighted_similarity(self, base_similarity, node_properties, query_text=None):
         """
         终极完整版：图谱加权打分算法
@@ -1119,72 +970,115 @@ class ImageSearchService:
             # 记录错误但不中断处理
             logger.error(f"处理节点失败: {e}")
         return None
-    
-    def search_similar_images(self, query_embedding, search_label="Artwork", top_k=10, min_similarity=0.1, query_text=None):
-        """搜索相似的图像，确保返回精确数量并包含完整信息"""
-        results = []
-
-        try:
-            # 确保数据库已连接
-            self._ensure_database_connected()
-            
-            # 获取所有节点
-            nodes = list(self.matcher.match(search_label))
-            
-            # 并行处理节点
-            all_results = []
-            
-            # 使用线程池并行处理
-            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-                # 提交所有任务
-                future_to_node = {
-                    executor.submit(self._process_node, node, search_label, query_embedding, min_similarity, query_text): node 
-                    for node in nodes
-                }
-                
-                # 收集结果
-                for future in concurrent.futures.as_completed(future_to_node):
-                    result = future.result()
-                    if result:
-                        all_results.append(result)
-
-            # 过滤和排序结果
-            filtered_results = self.filter_and_rank_results(all_results, query_text)
-
-            # 确保返回精确的 top_k 个结果
-            if len(filtered_results) >= top_k:
-                results = filtered_results[:top_k]
-            else:
-                # 如果结果不足，返回所有找到的
-                results = filtered_results
-
-            return results
-
-        except Exception as e:
-            logger.error(f"搜索过程中出错: {e}")
-            return []
 
     """新增"""
     def _hybrid_search(self, query_emb, top_k=10, query_text=None):
         """
         聚类聚合版：图谱融合检索
-        1. FAISS 海选 200 张图
-        2. 按 ID 聚类，同一画作仅显示一个结果
-        3. 内部携带所有关联局部图 URL
+        清晰分离【以文搜图】和【以图搜图】的双流架构
         """
         self._ensure_database_connected()
         self._ensure_model_loaded()
         
-        # 1. FAISS 海选：池子扩大到 200，保证合并后依然有足够的画作种类
-        query_vector = np.array([query_emb], dtype=np.float32)
-        faiss.normalize_L2(query_vector) 
-        distances, indices = self.index.search(query_vector, 200)
-        
-        # 用于聚合的容器
-        # 结构: { "ID123": {"data": {主结果}, "related_paths": [其他路径...]} }
+        # 🌟 0. 建立反向索引 (ID -> paths) 用于通过图谱查图，初始化一次即可
+        if not hasattr(self, '_base_id_to_paths'):
+            from collections import defaultdict
+            self._base_id_to_paths = defaultdict(list)
+            for idx, bid in enumerate(self.base_ids_list):
+                self._base_id_to_paths[bid].append(self.paths_array[idx])
+
+        # 用于聚合结果的容器
         grouped_results = {}
         
-        # 2. 遍历海选结果进行“认亲”和“归类”
+        # ==========================================
+        # 🌟 分支 1：【以文搜图】先行执行图谱文本精准强召回
+        # ==========================================
+        if query_text:
+            print(f"-> 正在执行【以文搜图】策略，关键词: {query_text}")
+            
+            # 第一路：去Neo4j暴力查标题和作者
+            query = """
+            MATCH (node) 
+            WHERE (node:Artwork OR node:ArtistPortrait)
+              AND (
+                node.title = $q OR 
+                node.title CONTAINS $q OR 
+                $q CONTAINS node.title OR 
+                node.author = $q OR 
+                node.author CONTAINS $q
+              )
+            // 排除无意义的空标题
+            AND node.title IS NOT NULL AND size(node.title) > 0
+            RETURN node.id AS id
+            LIMIT 30
+            """
+            try:
+                recalled_records = self.graph.run(query, q=query_text).data()
+                for r in recalled_records:
+                    bid = r.get('id')
+                    # 只有当这幅画在向量库/磁盘上有对应图片时，才录用
+                    if bid and bid in self._base_id_to_paths:
+                        meta = self._get_graph_metadata(bid)
+                        if not meta: continue
+                        
+                        entity_type = meta.get('entity_type', 'Artwork')
+                        author_display = meta.get('author') or '未知'
+                        if entity_type == 'ArtistPortrait': author_display = '无特定作者'
+                        
+                        node_properties = {
+                            'title': meta.get('title') or '未知',
+                            'description': meta.get('description') or '',
+                            'dynasty': meta.get('dynasty') or '',
+                            'author': author_display,
+                            'style': meta.get('style') or '',
+                            'seal_content': meta.get('seal_content', ''),
+                            'entity_type': entity_type
+                        }
+                        
+                        # 强召回的保送生，基础相似度直接给满分 1.0
+                        final_similarity = self.calculate_weighted_similarity(1.0, node_properties, query_text)
+                        
+                        # 💥 究极暴击加分：一旦名字匹配，加上突破天际的 2.0 分，保证它神挡杀神排在第一
+                        if query_text in meta.get('title', '') or meta.get('title', '') in query_text:
+                            final_similarity += 2.0 
+                        elif query_text in author_display or author_display in query_text:
+                            final_similarity += 1.5 
+                            
+                        # 取出这幅画关联的所有局部图片
+                        paths_for_bid = self._base_id_to_paths[bid]
+                        
+                        # 加入结果池（作为VIP保送生）
+                        grouped_results[bid] = {
+                            "main_result": {
+                                'similarity': final_similarity,
+                                'node_type': entity_type,
+                                'title': node_properties['title'],
+                                'author': node_properties['author'],
+                                'dynasty': node_properties['dynasty'],
+                                'style': node_properties['style'],
+                                'description': node_properties['description'],
+                                'content': meta.get('seal_content', ''),
+                                'image_url': self._get_artwork_image_url(paths_for_bid[0]),
+                                'properties': node_properties 
+                            },
+                            "related_paths": list(paths_for_bid) 
+                        }
+            except Exception as e:
+                print(f"⚠️ 图谱文本强召回异常: {e}")
+                
+        else:
+            print("-> 正在执行【以图搜图】策略，跳过文本精准召回")
+            # 【以图搜图】什么都不用做，直接进入下方的纯视觉向量比对阶段
+
+        # ==========================================
+        # 🌟 分支 2 / 兜底项：FAISS 向量泛召回
+        # (图搜图全靠它，文搜图靠它找意境相似的画作)
+        # ==========================================
+        query_vector = np.array([query_emb], dtype=np.float32)
+        faiss.normalize_L2(query_vector) 
+        # 把海选名额拉大到 300，避免千问模型“偏科”导致漏选
+        distances, indices = self.index.search(query_vector, 300)
+        
         for i in range(len(indices[0])):
             idx = indices[0][i]
             if idx == -1: continue
@@ -1193,25 +1087,19 @@ class ImageSearchService:
             base_id = self.base_ids_list[idx] 
             base_sim = float(distances[0][i])
             
-            # --- 情况 A: 这个 ID 之前已经出现过了（处理小弟） ---
+            # --- 如果这个画已经在【分支1】被文本保送了，或者是刚刚被收录了 ---
             if base_id in grouped_results:
-                # 记录这个关联图片的路径
                 if img_path not in grouped_results[base_id]['related_paths']:
-                    # 注意：第一个进来的已经是最高分的了，剩下的按顺序加进去
                     grouped_results[base_id]['related_paths'].append(img_path)
-                continue # 小弟不需要再查图谱和打分了
+                continue 
                 
-            # --- 情况 B: 这个 ID 是第一次出现（处理带头大哥） ---
-            # 只有大哥需要查 Neo4j 拉取身世档案
+            # --- 没见过的新画，去图谱拉取档案，正常打分 ---
             meta = self._get_graph_metadata(base_id)
-            
             if meta:
                 entity_type = meta.get('entity_type', 'Artwork')
                 author_display = meta.get('author') or '未知'
-                if entity_type == 'ArtistPortrait':
-                    author_display = '无特定作者'
+                if entity_type == 'ArtistPortrait': author_display = '无特定作者'
                 
-                # 准备属性给打分函数
                 node_properties = {
                     'title': meta.get('title') or '未知',
                     'description': meta.get('description') or '',
@@ -1222,10 +1110,9 @@ class ImageSearchService:
                     'entity_type': entity_type
                 }
                 
-                # 调用你的王牌加权打分算法 (包含了 0.8 作者暴击逻辑)
+                # 如果是以图搜图，query_text是None，你的打分函数内部会自动使用纯视觉权重(cosine:0.95)
                 final_similarity = self.calculate_weighted_similarity(base_sim, node_properties, query_text)
                 
-                # 只有及格的才准入选 (阈值可调)
                 if final_similarity > 0.05:
                     grouped_results[base_id] = {
                         "main_result": {
@@ -1237,33 +1124,52 @@ class ImageSearchService:
                             'style': node_properties['style'],
                             'description': node_properties['description'],
                             'content': meta.get('seal_content', ''),
-                            # 大哥的封面图：就是 200 张里最像的那张
                             'image_url': self._get_artwork_image_url(img_path),
                             'properties': node_properties 
                         },
-                        "related_paths": [img_path] # 把自己也放进路径池，方便展示
+                        "related_paths": [img_path] 
                     }
 
-        # 3. 结果平铺与 URL 转化
+        # ==========================================
+        # 🌟 3. 结果平铺与 URL 转化
+        # ==========================================
         all_results = []
         for base_id, data in grouped_results.items():
             result_item = data["main_result"]
             
-            # 🌟 把这一组里所有的局部图全部转化成 URL，发给前端
-            # 我们按照 FAISS 返回的相似度顺序排好
+            # 把全家桶的所有局部图转换成可访问的URL
             all_related_urls = []
             for p in data["related_paths"]:
                 all_related_urls.append(self._get_artwork_image_url(p))
             
             result_item["related_images"] = all_related_urls 
             result_item["related_count"] = len(all_related_urls)
-            
             all_results.append(result_item)
         
-        # 4. 最终大排名：对“画作组”进行综合排序
-        # 这样即使用户搜“仇英”，即便仇英的某张图排在 FAISS 第 100 名，
-        # 它也会因为打分加权冲到 list 的第一名。
+        # ==========================================
+        # 🌟 4. 最终排名与展示分归一化
+        # ==========================================
+        # 先用带有爆表分的原始数据去排名，保证VIP保送生稳居第一
         final_ranked = self.filter_and_rank_results(all_results, query_text)
+        
+        # 排序完成后，把爆表的内部相似度“美化”回百分比范围
+        for res in final_ranked:
+            if res['similarity'] > 1.0:
+                title = res.get('title', '')
+                author = res.get('author', '')
+                
+                # 根据不同级别的命中，分配 98% ~ 100% 的展示分数
+                if query_text == title:
+                    res['similarity'] = 1.00    # 完全一致给 100%
+                elif query_text and (query_text in title or title in query_text):
+                    res['similarity'] = 0.99    # 包含标题给 99%
+                elif query_text and (query_text in author or author in query_text):
+                    res['similarity'] = 0.98    # 命中作者给 98%
+                else:
+                    res['similarity'] = 0.95    # 其他溢出情况兜底 95%
+                    
+            # 极限防御：防止任何漏网之鱼超标
+            res['similarity'] = min(1.0, res['similarity'])
         
         return final_ranked[:top_k]
 
