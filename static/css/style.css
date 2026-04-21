@@ -1,3 +1,60 @@
+/* 1. 确保容器不剪切外面露出的“纸边” */
+.artwork-card.is-stack {
+    overflow: visible !important;
+    margin-top: 10px; /* 留出顶部堆叠空间 */
+}
+
+.artwork-card.is-stack .artwork-image-container {
+    position: relative;
+    overflow: visible !important; /* 🌟 核心：允许装饰层溢出显示 */
+    z-index: 5;
+}
+
+/* 2. 装饰层通用样式 */
+.is-stack .layer-1, 
+.is-stack .layer-2 {
+    display: block;
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    border-radius: 8px;
+    border: 1px solid #d3c4a8;
+    box-shadow: 2px 2px 5px rgba(0,0,0,0.1);
+}
+
+/* 3. 第一层堆叠（向右上偏移） */
+.is-stack .layer-1 {
+    background: #fdfaf5;
+    z-index: -1;
+    transform: translate(5px, -5px); /* 向上和向右移动 */
+}
+
+/* 4. 第二层堆叠（进一步向右上偏移） */
+.is-stack .layer-2 {
+    background: #f5f0e6;
+    z-index: -2;
+    transform: translate(10px, -10px); /* 移动更多 */
+    opacity: 0.6;
+}
+
+/* 5. 重新调整红色角标样式，让它更醒目 */
+.related-badge {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    background: #c0392b; /* 浓郁的朱砂红 */
+    color: white;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+    z-index: 10;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    pointer-events: none; /* 防止遮挡点击事件 */
+}
+
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
     background-color: #e6f2fb; /* 更柔和的浅蓝色背景 */

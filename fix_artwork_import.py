@@ -21,7 +21,7 @@ graph = Graph(os.getenv("NEO4J_URI", "bolt://localhost:7687"),
 matcher = NodeMatcher(graph)
 
 # 路径定义
-DIR1 = r'F:\Chineseart\artwork_images\artworks'  # 217张图
+DIR1 = r'F:\Chineseart\artworks'  # 217张图
 DIR2 = r'F:\Chineseart\artworks'                 # 112张图
 JSON1 = 'golden_dataset.json'
 JSON2 = r'f:\Chineseart\detail_json\works_details_artworks_cleaned.json'

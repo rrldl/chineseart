@@ -24,11 +24,17 @@ from knowledge_graph import KnowledgeGraphManager
 from application_service import ApplicationService
 from performance_optimizer import cache_manager, async_processor, batch_processor
 from dotenv import load_dotenv
+import dashscope
 
 #处理图片和云端模型的库
 import base64  # 用于将图片编码发送给云端
 from langchain_community.chat_models import ChatTongyi
 from langchain_core.messages import HumanMessage
+
+load_dotenv()
+
+dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
+print("KEY =", os.getenv("DASHSCOPE_API_KEY"))
 
 # 路径转换函数
 def get_absolute_path(path_from_db):
@@ -39,8 +45,7 @@ def get_absolute_path(path_from_db):
         return None
         
     # 从 .env 获取配置，如果没有配置则默认用 F 盘路径
-    db_prefix = os.getenv("DB_ROOT_PREFIX", "F:/Chineseart").replace("\\", "/")
-    local_root = os.getenv("LOCAL_PROJECT_ROOT", "F:/Chineseart").replace("\\", "/")
+    local_root = os.getenv("LOCAL_PROJECT_ROOT")
 
     # 1. 统一斜杠格式
     standard_path = path_from_db.replace("\\", "/")
@@ -145,7 +150,7 @@ def describe_image_with_qwen(image_path):
             return False, "缺少 DASHSCOPE_API_KEY"
 
         # 初始化视觉模型
-        llm = ChatTongyi(model_name="qwen-vl-plus", dashscope_api_key=api_key)
+        llm = ChatTongyi(model_name="qwen-vl-plus", dashscope_api_key="DASHSCOPE_API_KEY")
 
         # 将本地图片转换为 Base64 编码
         with open(image_path, "rb") as f:
@@ -360,7 +365,7 @@ def ask_question():
 
                 # 从环境变量读取配置
                 llm_mode = os.getenv("LL_MODE", "cloud") # 获取模式，默认cloud
-                api_key = os.getenv("DASHSCOPE_API_KEY") # 获取阿里云Key
+                dashscope_api_key = os.getenv("DASHSCOPE_API_KEY") # 获取阿里云Key
                 ali_model = os.getenv("ALI_MODEL0", "qwen-plus") # 获取云端模型名
 
                 #  实例化问答系统
@@ -371,7 +376,7 @@ def ask_question():
                     
                     # --- 注入云端/本地切换参数 ---
                     llm_mode=llm_mode,
-                    dashscope_api_key=api_key,
+                    dashscope_api_key=dashscope_api_key,
                     ali_model=ali_model,
                     
                     # --- 注入本地备选参数 ---
@@ -693,7 +698,7 @@ def get_artwork_details():
 
 # 定义两个确切的图片存储路径
 DIR_BMP = r"F:\Chineseart\artworks"                 # 112张 BMP
-DIR_JPG = r"F:\Chineseart\artwork_images\artworks"  # 217张 JPG
+DIR_JPG = r"F:\Chineseart\artworks"  # 217张 JPG
 
 @app.route('/artwork_image/<filename>')
 def serve_artwork(filename):
@@ -739,28 +744,31 @@ def serve_artwork(filename):
     from flask import abort
     return abort(404)
 
+IMAGE_BASE_DIR = os.getenv("LOCAL_PROJECT_ROOT")
+
 @app.route('/api/get_image')
-def serve_image():
-    """通用图片读取接口，通过绝对路径获取图片"""
-    # 1. 获取 URL 里的 path 参数
-    encoded_path = request.args.get('path')
-    if not encoded_path:
-        return abort(400, "Missing path parameter")
-    
-    # 2. 解码路径 (把 %xx 还原成真实的路径)
-    img_path = urllib.parse.unquote(encoded_path)
-    
-    # 3. 转换路径
-    full_path = get_absolute_path(img_path)
-    
-    # 4. 检查文件是否存在
-    if full_path and os.path.exists(full_path):
-        # 5. 直接把磁盘上的文件发给浏览器
-        return send_file(full_path)
-    else:
-        # 方便调试：如果图出不来，控制台会打印具体哪个路径错了
-        print(f"❌ 图片文件不存在: {full_path}")
-        return abort(404)
+def get_image():
+    """带深度调试的图片获取接口"""
+    try:
+        image_rel_path = request.args.get('path')
+        if not image_rel_path:
+            return "Missing path", 400
+        
+        # 1. 解码
+        image_rel_path = urllib.parse.unquote(image_rel_path)
+        
+        full_path = os.path.normpath(os.path.join(IMAGE_BASE_DIR, image_rel_path))
+
+        if os.path.exists(full_path):
+            directory = os.path.dirname(full_path)
+            filename = os.path.basename(full_path)
+            return send_from_directory(directory, filename)
+        else:
+            return f"File not found: {image_rel_path}", 404
+
+    except Exception as e:
+        app.logger.error(f"读取图片失败: {e}")
+        return str(e), 500
 
 
 # 启用新API路由

@@ -21,7 +21,7 @@ graph = Graph("bolt://localhost:7687", auth=(os.getenv("NEO4J_USER"), os.getenv(
 matcher = NodeMatcher(graph)
 
 # 图片目录
-IMAGE_DIR = r'F:\Chineseart\artwork_images\artworks'
+IMAGE_DIR = r'F:\Chineseart\artworks'
 
 def get_ground_truth(title):
     """

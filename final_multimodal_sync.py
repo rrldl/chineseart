@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from PIL import Image
 import tempfile
 
+dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
 # --- 1. 初始化配置 ---
 load_dotenv()
 dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
@@ -113,7 +114,8 @@ def run_master_sync():
                     input=[
                         {'image': f"file://{os.path.abspath(processed_path)}"},
                         {'text': text_input[:500]} # 限制文本长度防止超限
-                    ]
+                    ],
+                    api_key=os.getenv("DASHSCOPE_API_KEY")
                 )
                 if res.status_code == 200:
                     embedding = res.output['embeddings'][0]['embedding']

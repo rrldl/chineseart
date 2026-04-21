@@ -721,76 +721,61 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!artworks || artworks.length === 0) {
             elements.modalBody.innerHTML = '<div style="text-align:center;padding:40px;color:#666;">未找到相关作品</div>';
         } else {
-            // 按相似度排序
-            const sortedArtworks = [...artworks].sort((a, b) => {
-                const simA = a.similarity || 0;
-                const simB = b.similarity || 0;
-                return simB - simA; // 降序排列，相似度高的在前
-            });
+            // 1. 排序
+            const sortedArtworks = [...artworks].sort((a, b) => (b.similarity || 0) - (a.similarity || 0));
 
             let html = `<div class="search-result-grid">`;
 
             sortedArtworks.forEach((artwork, index) => {
-                // 使用完整的作品信息
-                const title = artwork.title || artwork.properties?.title || '未命名作品';
-                const author = artwork.author || artwork.properties?.author || artwork.properties?.created_by || '未知作者';
-                const dynasty = artwork.dynasty || artwork.properties?.dynasty || '';
-                const similarity = artwork.similarity !== undefined ? 
-                                 `相似度: ${(artwork.similarity * 100).toFixed(1)}%` : '';
+                const title = artwork.title || '未命名作品';
+                const author = artwork.author || '未知作者';
+                const dynasty = artwork.dynasty || '';
+                const similarity = artwork.similarity !== undefined ? `相似度: ${(artwork.similarity * 100).toFixed(1)}%` : '';
                 
-                // 定义 imageFilename 变量
-                const imageFilename = artwork.image_filename || artwork.properties?.image_filename || '';
-                
-                // 构造图片URL - 优先使用 image_url，如果没有则使用新的通用图片接口
-                let imageUrl = '';
-                if (artwork.image_url) {
-                    imageUrl = artwork.image_url;
-                } else if (artwork.image_path) {
-                    // 使用新的通用图片接口
-                    const encodedPath = encodeURIComponent(artwork.image_path);
-                    imageUrl = `/api/get_image?path=${encodedPath}`;
-                } else {
-                    // 作为后备，使用原来的方法
-                    if (imageFilename) {
-                        const encodedFilename = encodeURIComponent(imageFilename);
-                        imageUrl = `/artwork_image/${encodedFilename}`;
-                    } else if (title && title !== '未命名作品') {
-                        const encodedTitle = encodeURIComponent(title);
-                        imageUrl = `/artwork_image/${encodedTitle}`;
-                    }
+                // 确定图片路径
+                let imageUrl = artwork.image_url || '/static/default_art.png';
+                if (!artwork.image_url && artwork.image_path) {
+                    imageUrl = `/api/get_image?path=${encodeURIComponent(artwork.image_path)}`;
                 }
 
+                // 🌟 核心：判断是否显示堆叠效果
+                const hasRelated = artwork.related_images && artwork.related_images.length > 1;
+
                 html += `
-                    <div class="artwork-card" data-index="${index}">
-                        <div class="artwork-image-container">
-                            ${imageUrl ? 
-                                `<img src="${imageUrl}" alt="${title}" class="artwork-image" 
-                                     onerror="handleImageError(this, '${title}', '${imageFilename || ''}')">` : 
-                                `<div class="artwork-placeholder">无图片</div>`}
-                        </div>
-                        <div class="artwork-info">
-                            <div class="artwork-title" title="${title}">
-                                ${title}
-                            </div>
-                            <div class="artwork-author">${author}</div>
-                            ${dynasty ? `<div class="artwork-dynasty">${dynasty}</div>` : ''}
-                            ${similarity ? `<div class="artwork-similarity">${similarity}</div>` : ''}
-                        </div>
+                <div class="artwork-card ${hasRelated ? 'is-stack' : ''}" data-index="${index}">
+                    <div class="artwork-image-container">
+                        <!-- 堆叠层装饰 -->
+                        ${hasRelated ? `
+                            <div class="stack-layer layer-1"></div>
+                            <div class="stack-layer layer-2"></div>
+                        ` : ''}
+                        
+                        <img src="${imageUrl}" alt="${title}" class="artwork-image">
+                        
+                        <!-- 数量角标 -->
+                        ${hasRelated ? `<div class="related-badge">+${artwork.related_count} 细节图</div>` : ''}
                     </div>
-                `;
+                    <div class="artwork-info">
+                        <div class="artwork-title" title="${title}">${title}</div>
+                        <div class="artwork-author">${author}</div>
+                        ${dynasty ? `<div class="artwork-dynasty">${dynasty}</div>` : ''}
+                        ${similarity ? `<div class="artwork-similarity">${similarity}</div>` : ''}
+                    </div>
+                </div>
+            `;
             });
 
             html += `</div>`;
             elements.modalBody.innerHTML = html;
 
-            // 为每张卡片添加点击事件
-            document.querySelectorAll('.artwork-card').forEach((card, index) => {
+            // 重新绑定点击事件
+            elements.modalBody.querySelectorAll('.artwork-card').forEach((card) => {
                 card.addEventListener('click', () => {
-                    showArtworkDetail(sortedArtworks[index]);
+                    const idx = card.dataset.index;
+                    showArtworkDetail(sortedArtworks[idx]); // 🌟 点击后进入详情
                 });
             });
-        } // 结束 if/else 逻辑
-
+        }
         elements.modal.classList.remove('hidden');
     } // ⬅️ 这是 showSearchResults 函数的结束大括号
 
@@ -812,16 +797,18 @@ document.addEventListener('DOMContentLoaded', () => {
         img.style.objectFit = 'contain';
     };
 
-    //针对四种作品类型，进行不同的前端显示处理
+// 针对四种作品类型，进行不同的前端显示处理
     async function showArtworkDetail(artwork) {
-        // 1. 基础属性提取 (得益于后端已归一化，这里可以直接取值)
-        const label = artwork.label || 'Artwork';
+        // 1. 基础属性提取
+        // 注意：后端可能返回 label 也可能返回 node_type，这里做了兼容
+        const label = artwork.label || artwork.node_type || 'Artwork';
         const title = artwork.title || '未知作品';
         const author = artwork.author || '未知作者';
         const dynasty = artwork.dynasty || '未知';
         const description = artwork.description || '暂无描述';
         const similarity = artwork.similarity !== undefined ? 
                          `相似度: ${(artwork.similarity * 100).toFixed(1)}%` : '';
+        const imageUrl = artwork.image_url || '/static/default_art.png';
         
         // 2. 准备分类标签样式
         const labelConfigs = {
@@ -832,102 +819,115 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         const config = labelConfigs[label] || { name: '作品', color: '#999' };
 
-        // 3. 构建动态属性 HTML (核心：根据 Label 差异化显示)
+        // 3. 构建动态属性 HTML
         let dynamicProperties = `
             <p><strong>作者/艺术家:</strong> ${author}</p>
             <p><strong>朝代/时期:</strong> ${dynasty}</p>
         `;
-
-        // 针对【印章】的特有显示 (微调这一小块)
+        
         if (label === 'Seal') {
             dynamicProperties += `
-                <p><strong>印文内容:</strong> <span style="color:#C0392B; font-weight:bold; font-size:1.1em;">${artwork.seal_content || artwork.content || '未识别'}</span></p>
+                <p><strong>印文内容:</strong> <span style="color:#C0392B; font-weight:bold;">${artwork.seal_content || artwork.content || '未识别'}</span></p>
                 <p><strong>印章风格:</strong> ${artwork.style || '未知'}</p>
             `;
+        } else if (label === 'Inscription') {
+            dynamicProperties += `<p><strong>标签:</strong> ${artwork.tags || artwork.style || '书法/题跋'}</p>`;
+        } else if (label === 'ArtistPortrait') {
+            dynamicProperties += `<p><strong>身份类别:</strong> ${artwork.category || '艺术家'}</p>`;
+        } else {
+            dynamicProperties += `<p><strong>艺术风格:</strong> ${artwork.style || '未知'}</p>`;
         }
-        // 针对【题跋】的特有显示
-        else if (label === 'Inscription') {
-            dynamicProperties += `
-                <p><strong>标签:</strong> ${artwork.tags || '书法/题跋'}</p>
-            `;
-        }
-        // 针对【画像】的特有显示
-        else if (label === 'ArtistPortrait') {
-            dynamicProperties += `
-                <p><strong>身份类别:</strong> ${artwork.category || '艺术家'}</p>
-            `;
-        }
-        // 针对【普通画作】的特有显示
-        else {
-            dynamicProperties += `
-                <p><strong>艺术风格:</strong> ${artwork.style || '未知'}</p>
+
+        // 4. 🌟 构建关联图片画廊 (如果存在多个细节图)
+        let galleryHtml = '';
+        if (artwork.related_images && artwork.related_images.length > 1) {
+            galleryHtml = `
+                <div class="detail-gallery" style="margin-bottom: 25px; padding: 15px; background: #f5f0e6; border-radius: 8px; border: 1px solid #d3c4a8;">
+                    <p style="font-weight: bold; color: #8B6B40; margin-bottom: 12px; font-size: 14px;">
+                        <i class="fas fa-images"></i> 本组关联细节图 (${artwork.related_count}张):
+                    </p>
+                    <div style="display: flex; gap: 12px; overflow-x: auto; padding-bottom: 8px; scrollbar-width: thin;">
+                        ${artwork.related_images.map(imgUrl => `
+                            <img src="${imgUrl}" 
+                                 style="height: 100px; width: auto; border-radius: 4px; cursor: pointer; border: 2px solid #ddd; transition: all 0.2s; background: #fff;"
+                                 onclick="this.closest('.modal-content').querySelector('.main-display-img').src=this.src"
+                                 onmouseover="this.style.borderColor='#c0392b'; this.style.transform='scale(1.05)'"
+                                 onmouseout="this.style.borderColor='#ddd'; this.style.transform='scale(1)'"
+                                 title="点击切换主图">
+                        `).join('')}
+                    </div>
+                    <p style="font-size: 11px; color: #999; margin-top: 5px;">* 点击上方缩略图可切换主显示区域</p>
+                </div>
             `;
         }
 
-        // 4. 创建模态框容器
+        // 5. 创建模态框外壳
         const detailModal = document.createElement('div');
         detailModal.className = 'modal';
         detailModal.style.cssText = `
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.7); display: flex; align-items: center;
-            justify-content: center; z-index: 1000; backdrop-filter: blur(5px);
+            background: rgba(0,0,0,0.75); display: flex; align-items: center;
+            justify-content: center; z-index: 2000; backdrop-filter: blur(4px);
         `;
 
-        // 5. 生成弹窗 HTML 内容
-        // 注意图片：优先使用后端生成的 image_url (它已经走过了绝对路径转换)
-        const imageUrl = artwork.image_url || '/static/default_art.png';
-
+        // 6. 填充 HTML 模板
         const detailContent = document.createElement('div');
         detailContent.className = 'modal-content';
         detailContent.style.cssText = `
-            background: #fdfaf5; padding: 30px; border-radius: 12px;
-            max-width: 700px; width: 90%; max-height: 85vh; overflow-y: auto;
-            position: relative; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            background: #fdfaf5; padding: 35px; border-radius: 12px;
+            max-width: 800px; width: 90%; max-height: 85vh; overflow-y: auto;
+            position: relative; box-shadow: 0 15px 40px rgba(0,0,0,0.5);
             border: 1px solid #d3c4a8;
         `;
 
         detailContent.innerHTML = `
-            <button class="close-detail" style="position:absolute;top:15px;right:15px;background:none;border:none;font-size:28px;cursor:pointer;color:#999;">&times;</button>
+            <button class="close-detail" style="position:absolute;top:15px;right:20px;background:none;border:none;font-size:35px;cursor:pointer;color:#999;line-height:1;">&times;</button>
             
-            <div style="display:inline-block; background:${config.color}; color:white; padding:2px 10px; border-radius:4px; font-size:12px; margin-bottom:10px;">
+            <div style="display:inline-block; background:${config.color}; color:white; padding:3px 12px; border-radius:4px; font-size:12px; margin-bottom:12px; font-weight:bold;">
                 ${config.name}
             </div>
 
-            <h3 style="color:#333; margin:0 0 20px 0; border-bottom:2px solid ${config.color}; padding-bottom:10px; font-family: 'Noto Serif SC', serif;">
+            <h3 style="color:#333; margin:0 0 20px 0; border-bottom:2px solid ${config.color}; padding-bottom:12px; font-family: 'Noto Serif SC', serif; font-size: 1.6em;">
                 ${title}
             </h3>
             
-            <div style="text-align:center; background:#eee; border-radius:8px; padding:10px; margin-bottom:20px;">
-                <img src="${imageUrl}" alt="${title}" style="max-width:100%; max-height:400px; border-radius:4px; box-shadow:0 4px 8px rgba(0,0,0,0.2);">
+            <!-- 主图展示区 -->
+            <div style="text-align:center; background:#eee; border-radius:8px; padding:15px; margin-bottom:25px; min-height: 200px; display: flex; align-items: center; justify-content: center;">
+                <img src="${imageUrl}" class="main-display-img" alt="${title}" 
+                     style="max-width:100%; max-height:450px; border-radius:4px; box-shadow:0 6px 12px rgba(0,0,0,0.15); transition: opacity 0.3s;">
             </div>
 
+            <!-- 🌟 插入生成的画廊 -->
+            ${galleryHtml}
+
+            <!-- 文字详情区 -->
             <div style="color:#444; line-height:1.8; font-size:15px;">
-                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:20px; background:#f5f0e6; padding:15px; border-radius:8px;">
+                <div style="display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-bottom:25px; background:#f5f0e6; padding:18px; border-radius:8px; border: 1px solid #e3d4b8;">
                     ${dynamicProperties}
-                    ${similarity ? `<p style="color:${config.color}; grid-column: span 2;"><strong>${similarity}</strong></p>` : ''}
+                    ${similarity ? `<p style="color:${config.color}; grid-column: span 2; margin-top: 5px; font-weight: bold; border-top: 1px dashed #d3c4a8; pt: 5px;">${similarity}</p>` : ''}
                 </div>
                 
-                <p><strong>作品描述:</strong></p>
-                <div style="text-indent: 2em; color:#555; text-align:justify; background:white; padding:15px; border-radius:8px; border:1px inset #eee;">
+                <p style="font-weight: bold; font-size: 1.1em; color: #333; margin-bottom: 10px; border-left: 4px solid ${config.color}; padding-left: 10px;">作品描述:</p>
+                <div style="text-indent: 2em; color:#555; text-align:justify; background:white; padding:20px; border-radius:8px; border:1px solid #eee; line-height: 1.8;">
                     ${description}
                 </div>
             </div>
+            <div style="height: 20px;"></div>
         `;
 
         detailModal.appendChild(detailContent);
         document.body.appendChild(detailModal);
 
-        // 6. 关闭事件逻辑
+        // 7. 事件绑定：关闭弹窗逻辑
         const closeModal = () => {
             if (document.body.contains(detailModal)) {
                 document.body.removeChild(detailModal);
             }
         };
 
+        detailModal.querySelector('.close-detail').addEventListener('click', closeModal);
         detailModal.addEventListener('click', (e) => {
-            if (e.target === detailModal || e.target.classList.contains('close-detail')) {
-                closeModal();
-            }
+            if (e.target === detailModal) closeModal();
         });
 
         // 支持 ESC 键关闭
@@ -938,7 +938,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         };
         document.addEventListener('keydown', escListener);
-}
+    }
+
     // 自定义艺术报告格式化工具
     function formatArtReport(text) {
         if (!text) return '';
