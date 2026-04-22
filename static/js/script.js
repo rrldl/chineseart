@@ -62,6 +62,10 @@ document.addEventListener('DOMContentLoaded', () => {
         setupEventListeners();
         createImageSearchCountSelector(); // 为以图搜图创建数量选择器
         updateStatus('系统就绪');
+        marked.setOptions({
+            breaks: true,    // 单个换行也转成 <br>
+            gfm: true
+        });
     }
 
     // 为以图搜图创建数量选择器
@@ -384,7 +388,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 添加消息到聊天历史
-    function addMessage(content, type = 'assistant', timestamp = null) {
+    function addMessage(content, type = 'assistant', timestamp = null, contentClass = 'message-content') {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${type}-message`;
 
@@ -401,7 +405,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         messageDiv.innerHTML = `
             <div class="message-header">${header}</div>
-            <div class="message-content">${content}</div>
+            <div class="${contentClass}">${content}</div>
             <div class="message-time">${timestamp}</div>
         `;
 
@@ -475,7 +479,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 answer = data.content;
                                 const contentBox = thinkingMessage.querySelector('.message-content');
                                 if (contentBox) {
-                                    contentBox.innerHTML = answer; 
+                                    contentBox.innerHTML = formatArtReport(answer);
                                 }
                             }
                         } catch (e) {
@@ -486,7 +490,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             // 更新消息内容
-            thinkingMessage.querySelector('.message-content').innerHTML = answer || '未能获取到答案';
+            thinkingMessage.querySelector('.message-content').innerHTML = formatArtReport(answer) || '未能获取到答案';
 
         } catch (error) {
             console.error('问答请求失败:', error);
@@ -539,7 +543,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const content = `
                     <div class="segmentation-result" style="margin: 0; padding: 0; display: flex; flex-direction: column;">
                         <!-- 1. 顶部标题：向上微调，紧贴回复框顶部 -->
-                        <h4 style="margin: 0 !important; padding: 0 !important; line-height: 1; font-size: 1.05em; color: #c0392b; transform: translateY(-4px);">图像分析结果</h4>
+                        <h4 style="margin: 6 !important; padding: 0 !important; line-height: 1.3; font-size: 1.05em; color: #c0392b; transform: translateY(-4px);">图像分析结果</h4>
                         
                         <!-- 2. 图片区域：移除多余下边距 -->
                         <div class="result-images" style="display: flex; gap: 10px; margin-top: 4px; margin-bottom: 0;">
@@ -559,15 +563,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
 
                         <!-- 3. 图像描述区：使用 margin-top 控制与上方标签文字的距离 -->
-                        <div class="description-box" style="margin-top: 10px; padding: 10px 12px; background: #fff; border-radius: 8px; border: 1px solid #eee; position: relative;">
+                        <div class="description-box" style="margin-top: 0px; padding: 0px 12px 10px; background: #fff; border-radius: 8px; border: 1px solid #eee; position: relative;">
                             <h4 style="margin: 0 0 5px 0 !important; padding: 0 !important; font-size: 1.05em; color: #2a7a52; border-bottom: 1px solid #f0f0f0; padding-bottom: 5px !important;">图像描述</h4>
-                            <div class="description-content" style="line-height: 1.6; color: #333; font-size: 0.95em; margin-top: 5px;">
+                            <div class="description-content" color: #333; font-size: 0.95em; margin-top: 0px;">
                                 ${formatArtReport(result.description || '未能生成描述')}
                             </div>
                         </div>
                     </div>
                 `;
-                addMessage(content, 'assistant');
+                addMessage(content, 'assistant', null, 'image-analysis-content');
             } else {
                 throw new Error(result.error || '图像处理失败');
             }
@@ -945,48 +949,47 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!text) return '';
 
         let lines = text.split('\n');
+        function parseBold(str) {
+            return str.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        }
         let formattedHtml = '';
         let inList = false;
+        let isFirst = true;  // ← 加这一行
 
         for (let i = 0; i < lines.length; i++) {
             let line = lines[i].trim();
             if (!line) {
-                if (inList) {
-                    formattedHtml += '</ul>';
-                    inList = false;
-                }
+                if (inList) { formattedHtml += '</ul>'; inList = false; }
                 continue;
             }
 
-            // 1. 识别 # 开头的标题 (优先级最高)
-            if (line.startsWith('#')) {
-                if (inList) {
-                    formattedHtml += '</ul>';
-                    inList = false;
-                }
+            if (line.indexOf('#') === 0) {
+                if (inList) { formattedHtml += '</ul>'; inList = false; }
                 let title = line.replace(/^#+\s*/, '');
-                formattedHtml += '<h3 style="color:#c0392b; font-size:1.15em; border-bottom:1px solid #f0f0f0; margin-top:15px; margin-bottom:10px; padding-bottom:5px;">' + title + '</h3>';
+                let mt = isFirst ? '0' : '15px';  // ← 改这里
+                formattedHtml += `<h3 style="color:#821408ff; font-size:1.15em; border-bottom:1px solid #f0f0f0; margin-top:${mt}; margin-bottom:10px; padding-bottom:5px;">${title}</h3>`;
+                isFirst = false;  // ← 加这行
                 continue;
             }
 
-            // 2. 识别 h3 HTML 标签
             if (line.toLowerCase().includes('h3')) {
-                if (inList) {
-                    formattedHtml += '</ul>';
-                    inList = false;
-                }
+                if (inList) { formattedHtml += '</ul>'; inList = false; }
                 let title = line.replace(/<\/?h3>/gi, '');
-                formattedHtml += '<h3 style="color:#c0392b; font-size:1.15em; border-bottom:1px solid #f0f0f0; margin-top:15px; margin-bottom:10px; padding-bottom:5px;">' + title + '</h3>';
+                let mt = isFirst ? '0' : '15px';  // ← 改这里
+                formattedHtml += `<h3 style="color:#810f02ff; font-size:1.15em; border-bottom:1px solid #f0f0f0; margin-top:${mt}; margin-bottom:10px; padding-bottom:5px;">${title}</h3>`;
+                isFirst = false;  // ← 加这行
                 continue;
             }
 
+            // 其余部分不变，但在每个 formattedHtml += 后加 isFirst = false;
             // 3. 识别数字标题 (1. 主题与内容)
-            if (/^\d+[.、]\s*/.test(line)) {
+            if (/^\d+[.、]\s*/.test(line) && line.length < 20) {
                 if (inList) {
                     formattedHtml += '</ul>';
                     inList = false;
                 }
-                formattedHtml += '<h4 style="color:#2a7a52; font-size:1.05em; margin-top:12px; margin-bottom:8px;">' + line + '</h4>';
+                formattedHtml += '<h4 style="color:#f24734ff; font-size:1.05em; margin-top:12px; margin-bottom:8px;">' + line + '</h4>';
+                isFirst = false; 
                 continue;
             }
 
@@ -996,7 +999,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     formattedHtml += '<ul style="margin-left:20px; margin-bottom:10px;">';
                     inList = true;
                 }
-                formattedHtml += '<li style="margin-bottom:5px; line-height:1.6;">' + line.substring(2) + '</li>';
+                formattedHtml += '<li style="margin-bottom:5px; line-height:1.6;">' +  parseBold(line.substring(2)) + '</li>';
+                isFirst = false; 
                 continue;
             }
 
@@ -1007,7 +1011,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     formattedHtml += '</ul>';
                     inList = false;
                 }
-                formattedHtml += '<p style="margin-bottom:5px; line-height:1.6;"><strong style="color:#2a7a52;">' + colonMatch[1] + '：</strong>' + colonMatch[2] + '</p>';
+                formattedHtml += '<p style="margin-bottom:5px; line-height:1.6;"><strong style="color:#b41f1fff;">' + colonMatch[1] + '：</strong>'  + parseBold(colonMatch[2]) +'</p>';
+                isFirst = false; 
                 continue;
             }
 
@@ -1016,7 +1021,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 formattedHtml += '</ul>';
                 inList = false;
             }
-            formattedHtml += '<p style="margin-bottom:8px; line-height:1.7;">' + line + '</p>';
+            formattedHtml += '<p style="margin-bottom:8px; line-height:1.7;">' + parseBold(line) +'</p>';
         }
 
         if (inList) {
