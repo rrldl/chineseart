@@ -2233,8 +2233,8 @@ textarea::placeholder {
 }
 
 .description-box .description-content strong {
-    color: #c0392b;
-    font-weight: 600;
+    color: #910f00;
+    font-weight: bold;
 }
 
 /* 响应式设计 */
@@ -2755,3 +2755,203 @@ textarea::placeholder {
     margin-top: 0px !important; /* 先重置为 0 看看效果 */
 }
 
+/*///////////////////////////////*/
+
+/* 1. 总容器：墨色正文，呼吸感留白 */
+/* ============================================================
+   功能一：问答框  .message-content
+   ============================================================ */
+
+.message-content {
+    line-height: 0.3;
+    color: #2c2c2c;
+    font-family: "Noto Serif SC", "STSong", "Songti SC", "SimSun", serif;
+    font-size: 16px;
+    background: transparent;
+    padding: 10px 5px;
+    border: none;
+    word-break: break-word;
+    letter-spacing: 0.5px;
+}
+
+.message-content h1,
+.message-content h2,
+.message-content h3 {
+    color: #8b0000;
+    font-weight: bold;
+    line-height: 1.4;
+    border-bottom: none;
+    margin-top: 1.4em;
+    margin-bottom: 0.6em;
+}
+
+.message-content h1:first-child,
+.message-content h2:first-child,
+.message-content h3:first-child {
+    margin-top: 0;
+}
+
+.message-content p {
+    margin-top: 0;
+    margin-bottom: 1em;
+    line-height: 1.8;
+    text-align: justify;
+}
+
+.message-content strong {
+    color: #8b0000;
+    font-weight: bold;
+}
+
+.message-content p strong {
+    color: #1a1a1a;
+    font-weight: bold;
+}
+
+.message-content ul,
+.message-content ol {
+    margin: 0.4em 0 1em 0;
+    padding-left: 1.5em;
+}
+
+.message-content li > ul,
+.message-content li > ol {
+    padding-left: 0.8em;
+    margin: 0.2em 0;
+}
+
+.message-content ul {
+    list-style-type: disc;
+}
+
+.message-content li {
+    margin-bottom: 0.4em;
+    line-height: 1.8;
+}
+
+.message-content ul li::marker {
+    color: #2c2c2c;
+}
+
+.message-content hr {
+    display: none;
+}
+
+.message-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.2em 0;
+}
+
+.message-content th,
+.message-content td {
+    padding: 10px;
+    border: 1px solid #e0d5c1;
+}
+
+.message-content th {
+    color: #8b0000;
+    font-weight: bold;
+}
+
+
+/* ============================================================
+   功能二：图像分析外层容器  .image-analysis-content
+   切断继承，独立于 .message-content
+   ============================================================ */
+
+.image-analysis-content {
+    line-height: 3;
+    color: #2c2c2c;
+    font-family: "Noto Serif SC", "STSong", "Songti SC", "SimSun", serif;
+    font-size: 16px;
+    word-break: break-word;
+}
+
+
+/* ============================================================
+   功能二：图像描述内容  .description-content
+   ============================================================ */
+
+.description-box .description-content {
+    line-height: 1.6;
+    color: #2c2c2c;
+    font-family: "Noto Serif SC", "STSong", "Songti SC", "SimSun", serif;
+    font-size: 15px;
+    word-break: break-word;
+    letter-spacing: 0.3px;
+}
+
+/* h3：报告总标题，如"中国古代艺术史专家分析报告" */
+.description-box .description-content h3 {
+    color: #c0392b;
+    font-size: 1.1em;
+    font-weight: bold;
+    margin-top: 12px;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #f0f0f0;
+    line-height: 1.4;
+}
+
+.description-box .description-content h3:first-child {
+    margin-top: 0;
+}
+
+/* h4：数字章节标题，如"1. 主题与内容" */
+.description-box .description-content h4 {
+    color: #90260f;
+    font-size: 1em;
+    font-weight: bold;
+    margin-top: 10px;
+    margin-bottom: 5px;
+    line-height: 1.4;
+    border-bottom: none;
+}
+
+/* 段落 */
+.description-box .description-content p {
+    color: #2c2c2c;
+    font-size: 1em;
+    margin: 0 0 5px 0;
+    line-height: 1.6;
+    text-align: justify;
+}
+
+/* 带冒号小标题里的加粗 */
+.description-box .description-content p strong {
+    color: #b5382a;
+    font-weight: bold;}
+
+/* 列表 */
+.description-box .description-content ul {
+    list-style-type: disc;
+    margin: 4px 0 8px 0;
+    padding-left: 0.6em;
+}
+
+.description-box .description-content li {
+    color: #2c2c2c;
+    font-size: 1em;
+    margin-bottom: 4px;
+    line-height: 1.6;
+}
+
+.description-box .description-content li strong {
+    color: #b22222;
+    font-weight: bold;
+}
+
+.description-box .description-content ul li::marker {
+    color: #2c2c2c;
+}
+
+.description-box .description-content hr {
+    display: none;
+}
+
+.description-box .description-content p,
+.description-box .description-content li {
+    font-style: normal;  /* 强制正文不斜 */
+    font-weight: normal;
+}

@@ -16,7 +16,8 @@ from ansi2html import Ansi2HTMLConverter  # For converting rich's ANSI output to
 from py2neo import Graph as Py2neoGraph  # Explicit import for clarity
 
 from image_search_app import ImageSearchService
-
+from markdown.extensions.toc import TocExtension # 自动生成目录（如果需要）
+import markdown
 # 导入新模块
 from data_collection import DataCollectionService
 from la_clip_alignment import LAClipAlignmentService
@@ -145,12 +146,17 @@ def describe_image_with_qwen(image_path):
         from langchain_core.messages import HumanMessage
         import base64
 
-        api_key = os.getenv("DASHSCOPE_API_KEY")
+        load_dotenv()
+
+        dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
+        print("KEY =", os.getenv("DASHSCOPE_API_KEY"))
+
+        api_key = dashscope.api_key
         if not api_key:
             return False, "缺少 DASHSCOPE_API_KEY"
 
         # 初始化视觉模型
-        llm = ChatTongyi(model_name="qwen-vl-plus", dashscope_api_key="DASHSCOPE_API_KEY")
+        llm = ChatTongyi(model_name="qwen-vl-plus", dashscope_api_key=api_key)
 
         # 将本地图片转换为 Base64 编码
         with open(image_path, "rb") as f:
@@ -287,6 +293,33 @@ def index():
     }
     return render_template("index.html", neo4j_config=neo4j_config)
 
+import re
+def format_markdown_old(text: str) -> str:
+                    import re
+                    if not text.strip():
+                        return "<p>（无内容）</p>"
+
+                    extensions = [
+                        'extra',
+                        'nl2br',
+                        'sane_lists',
+                        'attr_list',
+                        'fenced_code',
+                        'codehilite',
+                        'toc',
+                    ]
+
+                    html_body = markdown.markdown(
+                        text,
+                        extensions=extensions,
+                        extension_configs={
+                            'codehilite': {'css_class': 'highlight', 'linenums': False}
+                        },
+                        output_format='html5'
+                    )
+
+                    # 可选：前后包一层 div，方便 css 控制
+                    return f'<div class="answer-content">{html_body}</div>'
 
 @app.route("/ask", methods=["POST"])
 def ask_question():
@@ -392,7 +425,8 @@ def ask_question():
 
                 final_answer = rag_system.answer_question(question)
                 worker_sse_wrapper.flush()
-                q.put({'type': 'answer', 'content': final_answer})
+                final_answer_html = format_markdown_old(final_answer)
+                q.put({'type': 'answer', 'content': final_answer_html})
 
             except Exception as e:
                 app.logger.error(f"Error in RAG worker thread: {e}", exc_info=True)
@@ -424,7 +458,6 @@ def ask_question():
                 break
 
     return Response(stream_with_context(generate_response_stream()), mimetype='text/event-stream')
-
 
 @app.route('/upload_image', methods=['POST'])
 def upload_image():
@@ -468,33 +501,30 @@ def upload_image():
             return jsonify({"error": f"Image segmentation failed: {seg_info}"}), 500
 
         app.logger.info(f"开始图像描述: {segmented_path}")
+        #app.logger.info(f"开始图像描述: {original_path}") # 🌟 改为打印原图路径
         # 延迟导入，避免模块加载时的依赖问题
         from artwork_description import image_description_service
+        success, raw_description = image_description_service.describe_artwork_image(original_path)
 
-        # --- 修改开始：使用云端模型代替本地 Ollama ---
-        app.logger.info(f"开始云端图像描述: {original_path}")
-        # 直接调用我们刚才写的云端函数 - 使用原始图像，而不是分割后的图像
-        success, description = describe_image_with_qwen(original_path)
-        
+        # 2. 统一处理返回的 HTML 内容
         if not success:
-            app.logger.warning(f"云端图像描述失败: {description}")
-            # 如果云端也失败了，再尝试一次本地作为兜底（或者直接报错）
-            description = "图像描述生成失败（云端连接异常）。"
-        # --- 修改结束 ---
-    
+            app.logger.warning(f"图像描述失败: {raw_description}")
+            # 如果失败，直接给一个友好的文字提示，并包在简单的 HTML 里
+            description_html = f"<p>鉴赏报告生成失败：{raw_description}</p>"
+        else:
+            # 如果成功，再进行 Markdown 转换
+            # 假设 format_markdown_old 是你定义的函数
+            description_html = format_markdown_old(raw_description) 
 
-        if not success:
-            app.logger.warning(f"图像描述失败: {description}")
-            description = "图像描述生成失败，但图像分割已完成。"
+        app.logger.info(f"图像分割和描述完成")
 
-        app.logger.info(f"图像分割和描述完成: {segmented_path}")
-
+        # 3. 现在的 description_html 变量在任何路径下都有值了
         return jsonify({
             "success": True,
             "original_image": f"/uploads/{os.path.basename(original_path)}",
             "segmented_image": f"/segmented/{os.path.basename(segmented_path)}",
             "segmentation_info": seg_info,
-            "description": description
+            "description": description_html
         })
 
     except Exception as e:

@@ -6,14 +6,30 @@
 """
 import base64
 import os
-import requests
 import time
+import requests
 from dotenv import load_dotenv
+from rich import print
+from dashscope import MultiModalConversation
+from http import HTTPStatus
+import logging
+import dashscope
+from PIL import Image
+import io
+import base64
+
+# 屏蔽 dashscope 库打印庞大的请求体
+logging.getLogger("dashscope").setLevel(logging.WARNING)
+# 屏蔽底层网络库的请求日志
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 # 加载 .env 文件中的环境变量
 load_dotenv()
 
-
+dashscope.api_key = os.getenv("DASHSCOPE_API_KEY")
+print("KEY =", os.getenv("DASHSCOPE_API_KEY"))
+ALI_MODEL1="qwen-vl-plus"
 class ArtworkDescriptionService:
     """
     艺术品图像描述服务类 (Ollama + Qwen-7B-Chat 版本)
@@ -21,53 +37,78 @@ class ArtworkDescriptionService:
 
     def __init__(self):
         """
-        初始化服务，连接到本地 Ollama 实例。
-        请确保您已在 .env 文件中配置了 Ollama 的 URL 和模型名称。
+        初始化服务，连接到通义千问 API。
+        请确保您已在 .env 文件中配置了通义千问的 API Key 和模型名称。
         """
-        # 从环境变量获取 Ollama 的配置，如果不存在则使用默认值
-        self.base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        self.model = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")  # 确保你已通过 `ollama pull qwen:7b-chat` 下载此模型
+        self.ali_api_key = os.getenv("DASHSCOPE_API_KEY")
+        self.ali_model1 = os.getenv("ALI_MODEL1", "qwen-vl-plus")# 多模态模型
 
-        if not self.base_url:
-            raise EnvironmentError("请在 .env 文件中设置 OLLAMA_BASE_URL")
+        if not self.ali_api_key or not self.ali_model1:
+            raise EnvironmentError("请在 .env 文件中设置 ALI_API_KEY 和 ALI_MODEL1")
 
-        print("--- 艺术品图像描述服务 (Ollama) 初始化 ---")
-        print(f"Ollama URL: {self.base_url}")
-        print(f"使用模型: {self.model}")
-        print("-----------------------------------------")
+        print("--- 艺术品图像描述服务 (通义千问) 初始化 ---")
+        print(f"通义千问API模型 (图像): {self.ali_model1}")
+        print(f"API Key 已加载: {self.ali_api_key[:4]}...{self.ali_api_key[-4:]} (部分显示)" if self.ali_api_key else "API Key 未加载")
+        print("------------------------------------------")
 
     def encode_image_to_base64(self, image_path):
         """
-        将图像文件编码为 base64 字符串。
-        (此函数无需修改，功能通用)
+        读取图像，缩小尺寸并压缩，最后转为 base64。
+        解决 Exceeded limit on max bytes 错误。
         """
         try:
-            with open(image_path, "rb") as f:
-                return base64.b64encode(f.read()).decode('utf-8')
+            # 打开图片
+            with Image.open(image_path) as img:
+                # 1. 统一转为 RGB 模式（JPEG 不支持透明层，必须转换）
+                if img.mode in ("RGBA", "P", "CMYK"):
+                    img = img.convert("RGB")
+                
+                # 2. 限制最大边长为 1440 像素 (足以看清细节，且体积小)
+                max_size = 1440
+                if max(img.size) > max_size:
+                    img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+                    print(f"图片尺寸已缩小至: {img.size}")
+
+                # 3. 将图片保存到内存缓冲区
+                buffer = io.BytesIO()
+                # 使用 JPEG 格式和 80 的质量进行压缩
+                img.save(buffer, format="JPEG", quality=80)
+                
+                # 4. 获取字节数据并编码
+                encoded_string = base64.b64encode(buffer.getvalue()).decode('utf-8')
+                
+                # 打印一下编码后的大小，方便调试 (Base64 比原始字节大 33% 左右)
+                print(f"Base64 编码后体积: {len(encoded_string) / 1024 / 1024:.2f} MB")
+                return encoded_string
+                
         except Exception as e:
-            print(f"错误: 图像编码失败 - {e}")
+            print(f"错误: 图像压缩编码失败 - {e}")
             return None
 
-    def describe_artwork_image(self, segmented_image_path):
+    # 🌟 修改点：把参数名从 segmented_image_path 改为 original_image_path
+    # 明确告诉大模型，这是纯净的原图
+    def describe_artwork_image(self, original_image_path):
         """
-        描述图像（仅处理分割后的图像）
+        描述艺术品图像（必须传入未分割的、纯净的原图！）
         Args:
-            segmented_image_path: 分割后图像路径
+            original_image_path: 纯净的原图路径
         Returns:
             tuple: (成功标志, 描述文本或错误信息)
         """
         try:
-            # 检查图像是否存在
-            if not segmented_image_path or not os.path.exists(segmented_image_path):
-                return False, "分割后图像不存在"
-            # 编码图像为 Base64
-            image_b64 = self.encode_image_to_base64(segmented_image_path)
+            print(f"\n🚨🚨🚨 警告：我现在真正喂给通义千问的图片是 ===> {original_image_path} 🚨🚨🚨\n")
+            if not original_image_path or not os.path.exists(original_image_path):
+                return False, "原图不存在"
+                
+            image_b64 = self.encode_image_to_base64(original_image_path)
             if not image_b64:
                 return False, "图像编码失败"
-            return self._call_ollama(image_b64, is_artwork=True)
+                
+            return self._call_ali_qwen_multimodal(image_b64, is_artwork=True)
 
         except Exception as e:
             return False, f"图像描述生成失败: {str(e)}"
+
 
     def describe_single_image(self, image_path, custom_prompt=None):
         """
@@ -84,11 +125,11 @@ class ArtworkDescriptionService:
             image_b64 = self.encode_image_to_base64(image_path)
             if not image_b64:
                 return False, "图像编码失败"
-            return self._call_ollama(image_b64, custom_prompt=custom_prompt, is_artwork=False)
+            return self._call_ali_qwen_multimodal(image_b64, custom_prompt=custom_prompt, is_artwork=False)
         except Exception as e:
             return False, f"图像描述生成失败: {str(e)}"
 
-    def _call_ollama(self, image_base64, custom_prompt=None, is_artwork=True):
+    def _call_ali_qwen_multimodal(self, image_base64, custom_prompt=None, is_artwork=True):
         """
         Args:
             image_base64: Base64 编码的图像数据
@@ -97,11 +138,12 @@ class ArtworkDescriptionService:
         Returns:
             tuple: (成功标志, 描述文本或错误信息)
         """
-         # 构建提示词
-        if is_artwork:
-            prompt = """你是一位经验丰富的中国古代艺术史专家和书画鉴赏家。请以专业、严谨、结构化的方式，详细分析眼前这幅图像。
+        if not self.ali_api_key or not self.ali_model1:
+            return False, "通义千问API未配置或不可用。"
 
-**重要提示：请忽略图像中的红色轮廓线、彩色遮罩区域和分割标记，这些是分析工具留下的。请专注于底层原画的艺术风格、构图、笔触和历史背景进行鉴赏。**
+        # 构建提示词 (与之前类似)
+        if is_artwork:
+            prompt_content = """你是一位经验丰富的中国古代艺术史专家和书画鉴赏家。请以专业、严谨、结构化的方式，详细分析眼前这幅图像。
 
 **分析要求：**
 1.  **客观描述优先**：首先对画面进行客观的视觉描述，不加入主观推测。
@@ -137,87 +179,44 @@ class ArtworkDescriptionService:
         
         """
         else:
-               prompt = custom_prompt or "请详细描述这张图像的内容和特征。"
-        url = f"{self.base_url}/api/chat"
-        headers = {"Content-Type": "application/json"}
-         # 构建 Ollama 的请求体 (Payload)
-         # 注意：Qwen模型通过 'images' 字段接收 base64 图像列表
-        data = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt,
-                    "images": [image_base64]
-                }
-            ],
-            "stream": False,  # 我们需要一次性获得完整响应
-            "options": {
-                "temperature": 0.2  # 较低的温度，使分析更具确定性和专业性
+               prompt_content = custom_prompt or "请详细描述这张图像的内容和特征。"
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"image": f"data:image/jpeg;base64,{image_base64}"},
+                    {"text": prompt_content}
+                ]
             }
-        }
+        ]
 
         try:
             start_time = time.time()
-            response = requests.post(url, headers=headers, json=data, timeout=500)  # 延长超时时间以应对复杂图像分析
+            response = MultiModalConversation.call(
+                model=self.ali_model1,
+                api_key=self.ali_api_key,
+                messages=messages,
+            )
             end_time = time.time()
-            print(f"Ollama 请求耗时: {end_time - start_time:.2f} 秒")
+            print(f"通义千问API请求耗时: {end_time - start_time:.2f} 秒")
 
-            response.raise_for_status()  # 如果状态码不是 2xx，则抛出 HTTPError
-
-            result = response.json()
-
-        # 提取 Ollama 返回的核心内容
-            if 'message' in result and 'content' in result['message']:
-                content = result['message']['content']
-                content = content.replace('**', '')
-                import re
-                
-                # 处理标题标记，将#标题转换为HTML标题
-                lines = content.split('\n')
-                formatted_lines = []
-                empty_line_count = 0
-
-                for line in lines:
-                    line = line.strip()
-                    if line:
-                        # 检查是否是标题行
-                        title_match = re.match(r'^(#{1,3})\s*(.+)$', line)
-                        if title_match:
-                            title_text = title_match.group(2)
-                            formatted_lines.append(f'<h3>{title_text}</h3>')
-                        elif len(line) < 15 and (line.endswith('：') or line.endswith(':') or 
-                                                line.endswith('说明') or line.endswith('定位') or 
-                                                line.endswith('宗旨') or line.endswith('基')):
-                            title_text = line.rstrip('：:')
-                            formatted_lines.append(f'<h3>{title_text}</h3>')
-                        else:
-                            formatted_lines.append(line)
-                        
-                        empty_line_count = 0
-                    else:
-                        empty_line_count += 1
-                        if empty_line_count == 1 and formatted_lines:
-                            formatted_lines.append('')
-
-                # 清理开头和结尾的空行
-                while formatted_lines and not formatted_lines[0]:
-                    formatted_lines.pop(0)
-                while formatted_lines and not formatted_lines[-1]:
-                    formatted_lines.pop()
-
-                result = '\n'.join(formatted_lines)
-                return True, result.strip()
+            if response.status_code == HTTPStatus.OK:
+                content = response.output.choices[0].message.content[0]['text']
+                if not content:
+                    print("[red]通义千问API返回了空内容[/red]")
+                    return False, "通义千问API返回了空内容"
+                print("[green]✅ 图像描述生成成功[/green]")
+                return True, content.strip()
             else:
-                return False, f"响应格式异常，无法提取描述内容。原始响应: {result}"
+                error_message = f"通义千问API返回错误状态码: {response.status_code}, " \
+                                f"错误代码: {response.code}, 错误信息: {response.message}"
+                print(f"[red]{error_message}[/red]")
+                return False, error_message
 
-        except requests.exceptions.Timeout:
-            return False, "请求 Ollama 服务超时，请确认 Ollama 是否正在运行，并考虑延长超时时间。"
-        except requests.exceptions.RequestException as e:
-            return False, f"网络请求异常: 无法连接到 Ollama 服务于 {self.base_url}。请检查服务是否启动。错误: {str(e)}"
         except Exception as e:
-            return False, f"调用 Ollama 时发生未知错误: {str(e)}"
-
+            print(f"[red]调用通义千问API时发生错误: {str(e)}[/red]")
+            return False, f"调用通义千问API时发生错误: {str(e)}"
 # 全局图像描述服务实例
 image_description_service = ArtworkDescriptionService()
 
