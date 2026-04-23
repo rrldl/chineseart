@@ -33,7 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
         activeLayer = next;
     }
 
-    setInterval(changeBg, 6 * 1000);
+    setInterval(changeBg, 60 * 1000);
 
     // DOM 元素
     const elements = {
