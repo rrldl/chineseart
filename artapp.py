@@ -84,7 +84,6 @@ alignment_service = None
 kg_manager = None
 application_service = None
 
-
 def init_image_search():
     """初始化图像搜索服务"""
     global image_search_service
@@ -286,12 +285,15 @@ def sse_log_print(*args, **kwargs):
 @app.route("/", methods=["GET"])
 def index():
     """首页"""
-    # ✅ 从环境变量获取 Neo4j 配置，传给前端显示
     neo4j_config = {
         "uri": os.getenv("NEO4J_URI"),
         "user": os.getenv("NEO4J_USER"),
     }
-    return render_template("index.html", neo4j_config=neo4j_config)
+    # 加这两行
+    img_dir = os.path.join(app.static_folder, 'images')
+    bg_images = [f for f in os.listdir(img_dir) if f.endswith(('.jpg', '.png', '.webp'))]
+    
+    return render_template("index.html", neo4j_config=neo4j_config, bg_images=bg_images)
 
 import re
 def format_markdown_old(text: str) -> str:
