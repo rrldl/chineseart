@@ -3002,3 +3002,7 @@ textarea::placeholder {
   transform: translateZ(0);
   -webkit-transform: translateZ(0);
 }
+
+.main-container {
+  transition: opacity 0.5s ease;
+}
