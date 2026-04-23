@@ -2955,3 +2955,50 @@ textarea::placeholder {
     font-style: normal;  /* 强制正文不斜 */
     font-weight: normal;
 }
+
+/* ============================================================
+   透明背景
+   ============================================================ */
+.app {
+  min-height: 100vh;
+  background-image: url('./bg-qa.jpg');  /* 默认背景 */
+  background-size: cover;
+  background-position: center;
+}
+
+#bg-current {
+  z-index: 1;
+}
+#bg-next {
+  z-index: 2;
+}
+.main-container {
+  position: relative;
+  z-index: 3;  /* 比背景层都高 */
+}
+
+.bg-layer {
+  position: fixed;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  will-change: opacity;
+  transform: translateZ(0);  /* 强制 GPU 层 */
+  -webkit-transform: translateZ(0);
+  transition: opacity 1.5s ease;
+}
+.bg-layer.active { opacity: 1; }
+
+/* 删掉原来四个 .bg-qa / .bg-img 等，不需要了 */
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 12px;
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+}
