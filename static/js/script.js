@@ -34,6 +34,13 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     setInterval(changeBg, 30 * 1000);
+    let wallpaperMode = false;
+    document.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === ' ') {
+        wallpaperMode = !wallpaperMode;
+        document.querySelector('.main-container').style.opacity = wallpaperMode ? '0' : '1';
+    }
+    });
 
     // DOM 元素
     const elements = {
