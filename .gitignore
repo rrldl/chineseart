@@ -21,6 +21,7 @@ venv.bak/
 *.swo
 .DS_Store
 Thumbs.db
+.cph/
 
 # Logs and databases
 *.log
@@ -70,8 +71,8 @@ weights/FastSAM_X.pt
 
 notes/
 artworks/
-artists_pictures/
-signature_pictures/
+artists/
+seals/
 inscriptions/
 
 # --- 忽略数据索引文件 ---
