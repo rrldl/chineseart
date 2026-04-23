@@ -11,7 +11,9 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
 <body>
-<div class="main-container">
+<div class="bg-layer active" id="bg-current"></div>
+<div class="bg-layer" id="bg-next"></div>
+<div class="main-container glass-card">
     <header class="app-header">
         <div class="logo-title">
             <h1>墨韵灵境</h1>
@@ -183,7 +185,9 @@
         </div>
     </div>
 </div>
-
+<script>
+  const bgImages = {{ bg_images | tojson }}.map(f => `/static/images/${f}`);
+</script>
 <script src="{{ url_for('static', filename='js/script.js') }}"></script>
 </body>
 </html>

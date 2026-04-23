@@ -5,6 +5,35 @@ document.addEventListener('DOMContentLoaded', () => {
         currentImage: null,
         processing: false
     };
+    //背景轮换
+    const layers = [
+        document.getElementById('bg-current'),
+        document.getElementById('bg-next')
+    ];
+    let bgIndex = 0;
+    let activeLayer = 0; // 当前显示的是哪个层
+
+    // 初始化第一张
+    layers[0].style.backgroundImage = `url('${bgImages[0]}')`;
+    layers[0].classList.add('active');
+
+    function changeBg() {
+        bgIndex = (bgIndex + 1) % bgImages.length;
+        
+        const next = 1 - activeLayer; // 另一个层
+        
+        // 把新图放到隐藏层上
+        layers[next].style.backgroundImage = `url('${bgImages[bgIndex]}')`;
+        
+        // 新层淡入，旧层淡出
+        layers[next].classList.add('active');
+        layers[activeLayer].classList.remove('active');
+        
+        // 记录当前显示的层，不做任何其他操作
+        activeLayer = next;
+    }
+
+    setInterval(changeBg, 60 * 1000);
 
     // DOM 元素
     const elements = {
@@ -1030,6 +1059,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         return formattedHtml;
     }
+
+
 
     // 初始化应用
     init();
