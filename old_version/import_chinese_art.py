@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
+# 这个脚本的功能是将 golden_dataset.json 中存储的中国古代书画作品数据，
+# 导入到 Neo4j 图数据库中，构建一个知识图谱。
 import json
 import os
 from dotenv import load_dotenv

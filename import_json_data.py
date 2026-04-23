@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 导入JSON数据到Neo4j数据库
+最初的脚本
 """
 
 import json

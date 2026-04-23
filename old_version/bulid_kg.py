@@ -7,7 +7,7 @@ load_dotenv()
 kg_manager = KnowledgeGraphManager(
     os.getenv("NEO4J_URI", "bolt://localhost:7687"),
     os.getenv("NEO4J_USER", "neo4j"),
-    os.getenv("NEO4J_PASSWORD", "Zyr123456")
+    os.getenv("NEO4J_PASSWORD")
 )
 
 # 构建本体
